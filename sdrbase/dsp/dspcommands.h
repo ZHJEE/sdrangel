@@ -26,10 +26,8 @@
 
 class DeviceSampleSource;
 class BasebandSampleSink;
-class ThreadedBasebandSampleSink;
 class DeviceSampleSink;
 class BasebandSampleSource;
-class ThreadedBasebandSampleSource;
 class AudioFifo;
 
 class SDRBASE_API DSPAcquisitionInit : public Message {
@@ -185,54 +183,6 @@ private:
 	BasebandSampleSource* m_sampleSource;
 };
 
-class SDRBASE_API DSPAddThreadedBasebandSampleSink : public Message {
-	MESSAGE_CLASS_DECLARATION
-
-public:
-	DSPAddThreadedBasebandSampleSink(ThreadedBasebandSampleSink* threadedSampleSink) : Message(), m_threadedSampleSink(threadedSampleSink) { }
-
-	ThreadedBasebandSampleSink* getThreadedSampleSink() const { return m_threadedSampleSink; }
-
-private:
-	ThreadedBasebandSampleSink* m_threadedSampleSink;
-};
-
-class SDRBASE_API DSPAddThreadedBasebandSampleSource : public Message {
-	MESSAGE_CLASS_DECLARATION
-
-public:
-	DSPAddThreadedBasebandSampleSource(ThreadedBasebandSampleSource* threadedSampleSource) : Message(), m_threadedSampleSource(threadedSampleSource) { }
-
-	ThreadedBasebandSampleSource* getThreadedSampleSource() const { return m_threadedSampleSource; }
-
-private:
-	ThreadedBasebandSampleSource* m_threadedSampleSource;
-};
-
-class SDRBASE_API DSPRemoveThreadedBasebandSampleSink : public Message {
-	MESSAGE_CLASS_DECLARATION
-
-public:
-	DSPRemoveThreadedBasebandSampleSink(ThreadedBasebandSampleSink* threadedSampleSink) : Message(), m_threadedSampleSink(threadedSampleSink) { }
-
-	ThreadedBasebandSampleSink* getThreadedSampleSink() const { return m_threadedSampleSink; }
-
-private:
-	ThreadedBasebandSampleSink* m_threadedSampleSink;
-};
-
-class SDRBASE_API DSPRemoveThreadedBasebandSampleSource : public Message {
-	MESSAGE_CLASS_DECLARATION
-
-public:
-	DSPRemoveThreadedBasebandSampleSource(ThreadedBasebandSampleSource* threadedSampleSource) : Message(), m_threadedSampleSource(threadedSampleSource) { }
-
-	ThreadedBasebandSampleSource* getThreadedSampleSource() const { return m_threadedSampleSource; }
-
-private:
-	ThreadedBasebandSampleSource* m_threadedSampleSource;
-};
-
 class SDRBASE_API DSPAddAudioSink : public Message {
 	MESSAGE_CLASS_DECLARATION
 
@@ -333,6 +283,27 @@ private:
 	qint64 m_centerFrequency;
 };
 
+class SDRBASE_API DSPMIMOSignalNotification : public Message {
+	MESSAGE_CLASS_DECLARATION
+public:
+	DSPMIMOSignalNotification(int samplerate, qint64 centerFrequency, bool sourceOrSink, unsigned int index) :
+		Message(),
+		m_sampleRate(samplerate),
+		m_centerFrequency(centerFrequency),
+		m_sourceOrSink(sourceOrSink),
+		m_index(index)
+	{ }
+	int getSampleRate() const { return m_sampleRate; }
+	qint64 getCenterFrequency() const { return m_centerFrequency; }
+	bool getSourceOrSink() const { return m_sourceOrSink; }
+	unsigned int getIndex() const { return m_index; }
+private:
+	int m_sampleRate;
+	qint64 m_centerFrequency;
+	bool m_sourceOrSink;
+	unsigned int m_index;
+};
+
 class SDRBASE_API DSPConfigureChannelizer : public Message {
 	MESSAGE_CLASS_DECLARATION
 
@@ -355,13 +326,23 @@ class SDRBASE_API DSPConfigureAudio : public Message {
     MESSAGE_CLASS_DECLARATION
 
 public:
-    DSPConfigureAudio(int sampleRate) : m_sampleRate(sampleRate)
+    enum AudioType
+    {
+        AudioInput,
+        AudioOutput
+    };
+
+    DSPConfigureAudio(int sampleRate, AudioType audioType) :
+        m_sampleRate(sampleRate),
+        m_autioType(audioType)
     { }
 
     int getSampleRate() const { return m_sampleRate; }
+    AudioType getAudioType() const { return m_autioType; }
 
 private:
     int m_sampleRate;
+    AudioType m_autioType;
 };
 
 #endif // INCLUDE_DSPCOMMANDS_H

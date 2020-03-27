@@ -24,11 +24,13 @@
 #include "atvdemodgui.h"
 #include "atvdemod.h"
 #include "atvdemodplugin.h"
+#include "atvdemodwebapiadapter.h"
 
 const PluginDescriptor ATVDemodPlugin::m_ptrPluginDescriptor =
 {
+    ATVDemod::m_channelId,
 	QString("ATV Demodulator"),
-	QString("4.3.0"),
+	QString("4.12.3"),
     QString("(c) F4HKW for F4EXB / SDRAngel"),
 	QString("https://github.com/f4exb/sdrangel"),
 	true,
@@ -55,18 +57,22 @@ void ATVDemodPlugin::initPlugin(PluginAPI* ptrPluginAPI)
     m_ptrPluginAPI->registerRxChannel(ATVDemod::m_channelIdURI, ATVDemod::m_channelId, this);
 }
 
-PluginInstanceGUI* ATVDemodPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel)
+PluginInstanceGUI* ATVDemodPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel) const
 {
     return ATVDemodGUI::create(m_ptrPluginAPI, deviceUISet, rxChannel);
 }
 
-BasebandSampleSink* ATVDemodPlugin::createRxChannelBS(DeviceAPI *deviceAPI)
+BasebandSampleSink* ATVDemodPlugin::createRxChannelBS(DeviceAPI *deviceAPI) const
 {
     return new ATVDemod(deviceAPI);
 }
 
-ChannelAPI* ATVDemodPlugin::createRxChannelCS(DeviceAPI *deviceAPI)
+ChannelAPI* ATVDemodPlugin::createRxChannelCS(DeviceAPI *deviceAPI) const
 {
     return new ATVDemod(deviceAPI);
 }
 
+ChannelWebAPIAdapter* ATVDemodPlugin::createChannelWebAPIAdapter() const
+{
+	return new ATVDemodWebAPIAdapter();
+}

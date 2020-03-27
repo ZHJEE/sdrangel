@@ -24,10 +24,13 @@
 #include "localsinkgui.h"
 #endif
 #include "localsink.h"
+#include "localsinkwebapiadapter.h"
+#include "localsinkplugin.h"
 
 const PluginDescriptor LocalSinkPlugin::m_pluginDescriptor = {
+    LocalSink::m_channelId,
     QString("Local channel sink"),
-    QString("4.6.0"),
+    QString("4.12.3"),
     QString("(c) Edouard Griffiths, F4EXB"),
     QString("https://github.com/f4exb/sdrangel"),
     true,
@@ -55,24 +58,29 @@ void LocalSinkPlugin::initPlugin(PluginAPI* pluginAPI)
 
 #ifdef SERVER_MODE
 PluginInstanceGUI* LocalSinkPlugin::createRxChannelGUI(
-        DeviceUISet *deviceUISet __attribute__((unused)),
-        BasebandSampleSink *rxChannel __attribute__((unused)))
+        DeviceUISet *deviceUISet,
+        BasebandSampleSink *rxChannel) const
 {
     return 0;
 }
 #else
-PluginInstanceGUI* LocalSinkPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel)
+PluginInstanceGUI* LocalSinkPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel) const
 {
     return LocalSinkGUI::create(m_pluginAPI, deviceUISet, rxChannel);
 }
 #endif
 
-BasebandSampleSink* LocalSinkPlugin::createRxChannelBS(DeviceAPI *deviceAPI)
+BasebandSampleSink* LocalSinkPlugin::createRxChannelBS(DeviceAPI *deviceAPI) const
 {
     return new LocalSink(deviceAPI);
 }
 
-ChannelAPI* LocalSinkPlugin::createRxChannelCS(DeviceAPI *deviceAPI)
+ChannelAPI* LocalSinkPlugin::createRxChannelCS(DeviceAPI *deviceAPI) const
 {
     return new LocalSink(deviceAPI);
+}
+
+ChannelWebAPIAdapter* LocalSinkPlugin::createChannelWebAPIAdapter() const
+{
+	return new LocalSinkWebAPIAdapter();
 }

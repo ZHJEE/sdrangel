@@ -19,6 +19,7 @@
 
 #include "device/deviceuiset.h"
 #include "gui/basicchannelsettingsdialog.h"
+#include "gui/devicestreamselectiondialog.h"
 #include "dsp/hbfilterchainconverter.h"
 #include "mainwindow.h"
 
@@ -70,11 +71,16 @@ QByteArray LocalSinkGUI::serialize() const
 
 bool LocalSinkGUI::deserialize(const QByteArray& data)
 {
-    if(m_settings.deserialize(data)) {
+    updateLocalDevices();
+
+    if (m_settings.deserialize(data))
+    {
         displaySettings();
         applySettings(true);
         return true;
-    } else {
+    }
+    else
+    {
         resetToDefaults();
         return false;
     }
@@ -82,11 +88,11 @@ bool LocalSinkGUI::deserialize(const QByteArray& data)
 
 bool LocalSinkGUI::handleMessage(const Message& message)
 {
-    if (LocalSink::MsgSampleRateNotification::match(message))
+    if (LocalSink::MsgBasebandSampleRateNotification::match(message))
     {
-        LocalSink::MsgSampleRateNotification& notif = (LocalSink::MsgSampleRateNotification&) message;
+        LocalSink::MsgBasebandSampleRateNotification& notif = (LocalSink::MsgBasebandSampleRateNotification&) message;
         //m_channelMarker.setBandwidth(notif.getSampleRate());
-        m_sampleRate = notif.getSampleRate();
+        m_basebandSampleRate = notif.getSampleRate();
         displayRateAndShift();
         return true;
     }
@@ -110,7 +116,7 @@ LocalSinkGUI::LocalSinkGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, Baseb
         ui(new Ui::LocalSinkGUI),
         m_pluginAPI(pluginAPI),
         m_deviceUISet(deviceUISet),
-        m_sampleRate(0),
+        m_basebandSampleRate(0),
         m_tickCount(0)
 {
     ui->setupUi(this);
@@ -167,23 +173,12 @@ void LocalSinkGUI::applySettings(bool force)
     }
 }
 
-void LocalSinkGUI::applyChannelSettings()
-{
-    if (m_doApplySettings)
-    {
-        LocalSink::MsgConfigureChannelizer *msgChan = LocalSink::MsgConfigureChannelizer::create(
-                m_settings.m_log2Decim,
-                m_settings.m_filterChainHash);
-        m_localSink->getInputMessageQueue()->push(msgChan);
-    }
-}
-
 void LocalSinkGUI::displaySettings()
 {
     m_channelMarker.blockSignals(true);
     m_channelMarker.setCenterFrequency(0);
     m_channelMarker.setTitle(m_settings.m_title);
-    m_channelMarker.setBandwidth(m_sampleRate); // TODO
+    m_channelMarker.setBandwidth(m_basebandSampleRate / (1<<m_settings.m_log2Decim));
     m_channelMarker.setMovable(false); // do not let user move the center arbitrarily
     m_channelMarker.blockSignals(false);
     m_channelMarker.setColor(m_settings.m_rgbColor); // activate signal on the last setting only
@@ -192,15 +187,33 @@ void LocalSinkGUI::displaySettings()
     setWindowTitle(m_channelMarker.getTitle());
 
     blockApplySettings(true);
+    int index = getLocalDeviceIndexInCombo(m_settings.m_localDeviceIndex);
+
+    if (index >= 0) {
+        ui->localDevice->setCurrentIndex(index);
+    }
+
+    ui->localDevicePlay->setChecked(m_settings.m_play);
     ui->decimationFactor->setCurrentIndex(m_settings.m_log2Decim);
     applyDecimation();
+    displayStreamIndex();
+
     blockApplySettings(false);
+}
+
+void LocalSinkGUI::displayStreamIndex()
+{
+    if (m_deviceUISet->m_deviceMIMOEngine) {
+        setStreamIndicator(tr("%1").arg(m_settings.m_streamIndex));
+    } else {
+        setStreamIndicator("S"); // single channel indicator
+    }
 }
 
 void LocalSinkGUI::displayRateAndShift()
 {
-    int shift = m_shiftFrequencyFactor * m_sampleRate;
-    double channelSampleRate = ((double) m_sampleRate) / (1<<m_settings.m_log2Decim);
+    int shift = m_shiftFrequencyFactor * m_basebandSampleRate;
+    double channelSampleRate = ((double) m_basebandSampleRate) / (1<<m_settings.m_log2Decim);
     QLocale loc;
     ui->offsetFrequencyText->setText(tr("%1 Hz").arg(loc.toString(shift)));
     ui->channelRateText->setText(tr("%1k").arg(QString::number(channelSampleRate / 1000.0, 'g', 5)));
@@ -218,6 +231,20 @@ void LocalSinkGUI::updateLocalDevices()
     for (; it != localDevicesIndexes.end(); ++it) {
         ui->localDevice->addItem(tr("%1").arg(*it), QVariant(*it));
     }
+}
+
+int LocalSinkGUI::getLocalDeviceIndexInCombo(int localDeviceIndex)
+{
+    int index = 0;
+
+    for (; index < ui->localDevice->count(); index++)
+    {
+        if (localDeviceIndex == ui->localDevice->itemData(index).toInt()) {
+            return index;
+        }
+    }
+
+    return -1;
 }
 
 void LocalSinkGUI::leaveEvent(QEvent*)
@@ -276,6 +303,20 @@ void LocalSinkGUI::onMenuDialogCalled(const QPoint &p)
 
         applySettings();
     }
+    else if ((m_contextMenuType == ContextMenuStreamSettings) && (m_deviceUISet->m_deviceMIMOEngine))
+    {
+        DeviceStreamSelectionDialog dialog(this);
+        dialog.setNumberOfStreams(m_localSink->getNumberOfDeviceStreams());
+        dialog.setStreamIndex(m_settings.m_streamIndex);
+        dialog.move(p);
+        dialog.exec();
+
+        m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+        m_channelMarker.clearStreamIndexes();
+        m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+        displayStreamIndex();
+        applySettings();
+    }
 
     resetContextMenuType();
 }
@@ -302,6 +343,17 @@ void LocalSinkGUI::on_localDevicesRefresh_clicked(bool checked)
 {
     (void) checked;
     updateLocalDevices();
+    int index = getLocalDeviceIndexInCombo(m_settings.m_localDeviceIndex);
+
+    if (index >= 0) {
+        ui->localDevice->setCurrentIndex(index);
+    }
+}
+
+void LocalSinkGUI::on_localDevicePlay_toggled(bool checked)
+{
+    m_settings.m_play = checked;
+    applySettings();
 }
 
 void LocalSinkGUI::applyDecimation()
@@ -326,7 +378,7 @@ void LocalSinkGUI::applyPosition()
     ui->filterChainText->setText(s);
 
     displayRateAndShift();
-    applyChannelSettings();
+    applySettings();
 }
 
 void LocalSinkGUI::tick()

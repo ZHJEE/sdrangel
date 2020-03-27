@@ -30,9 +30,11 @@
 #include "util/db.h"
 #include "dsp/dspengine.h"
 #include "dsp/dspcommands.h"
+#include "dsp/cwkeyer.h"
 #include "gui/crightclickenabler.h"
 #include "gui/audioselectdialog.h"
 #include "gui/basicchannelsettingsdialog.h"
+#include "gui/devicestreamselectiondialog.h"
 #include "mainwindow.h"
 #include "ui_freedvmodgui.h"
 
@@ -130,7 +132,8 @@ bool FreeDVModGUI::handleMessage(const Message& message)
     else if (CWKeyer::MsgConfigureCWKeyer::match(message))
     {
         const CWKeyer::MsgConfigureCWKeyer& cfg = (CWKeyer::MsgConfigureCWKeyer&) message;
-        ui->cwKeyerGUI->displaySettings(cfg.getSettings());
+        ui->cwKeyerGUI->setSettings(cfg.getSettings());
+        ui->cwKeyerGUI->displaySettings();
         return true;
     }
     else
@@ -329,6 +332,20 @@ void FreeDVModGUI::onMenuDialogCalled(const QPoint &p)
 
         applySettings();
     }
+    else if ((m_contextMenuType == ContextMenuStreamSettings) && (m_deviceUISet->m_deviceMIMOEngine))
+    {
+        DeviceStreamSelectionDialog dialog(this);
+        dialog.setNumberOfStreams(m_freeDVMod->getNumberOfDeviceStreams());
+        dialog.setStreamIndex(m_settings.m_streamIndex);
+        dialog.move(p);
+        dialog.exec();
+
+        m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+        m_channelMarker.clearStreamIndexes();
+        m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+        displayStreamIndex();
+        applySettings();
+    }
 
     resetContextMenuType();
 }
@@ -375,6 +392,7 @@ FreeDVModGUI::FreeDVModGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, Baseb
     ui->deltaFrequency->setColorMapper(ColorMapper(ColorMapper::GrayGold));
     ui->deltaFrequency->setValueRange(false, 7, -9999999, 9999999);
 
+    m_channelMarker.setSourceOrSinkStream(false);
 	m_channelMarker.setVisible(true);
 
     m_deviceUISet->registerTxChannelInstance(FreeDVMod::m_channelIdURI, this);
@@ -383,7 +401,7 @@ FreeDVModGUI::FreeDVModGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, Baseb
 
     connect(&m_channelMarker, SIGNAL(changedByCursor()), this, SLOT(channelMarkerChangedByCursor()));
 
-    ui->cwKeyerGUI->setBuddies(m_freeDVMod->getInputMessageQueue(), m_freeDVMod->getCWKeyer());
+    ui->cwKeyerGUI->setCWKeyer(m_freeDVMod->getCWKeyer());
     ui->spectrumGUI->setBuddies(m_spectrumVis->getInputMessageQueue(), m_spectrumVis, ui->glSpectrum);
 
     m_settings.setChannelMarker(&m_channelMarker);
@@ -391,7 +409,7 @@ FreeDVModGUI::FreeDVModGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, Baseb
     m_settings.setCWKeyerGUI(ui->cwKeyerGUI);
 
 	connect(getInputMessageQueue(), SIGNAL(messageEnqueued()), this, SLOT(handleSourceMessages()));
-	connect(m_freeDVMod, SIGNAL(levelChanged(qreal, qreal, int)), ui->volumeMeter, SLOT(levelChanged(qreal, qreal, int)));
+    m_freeDVMod->setLevelMeter(ui->volumeMeter);
 
     displaySettings();
     applyBandwidths(5 - ui->spanLog2->value(), true); // does applySettings(true)
@@ -416,10 +434,6 @@ void FreeDVModGUI::applySettings(bool force)
 {
 	if (m_doApplySettings)
 	{
-		FreeDVMod::MsgConfigureChannelizer *msgChan = FreeDVMod::MsgConfigureChannelizer::create(
-		        48000, m_settings.m_inputFrequencyOffset);
-        m_freeDVMod->getInputMessageQueue()->push(msgChan);
-
 		FreeDVMod::MsgConfigureFreeDVMod *msg = FreeDVMod::MsgConfigureFreeDVMod::create(m_settings, force);
 		m_freeDVMod->getInputMessageQueue()->push(msg);
 	}
@@ -464,6 +478,7 @@ void FreeDVModGUI::displaySettings()
 
     setTitleColor(m_settings.m_rgbColor);
     setWindowTitle(m_channelMarker.getTitle());
+    displayStreamIndex();
 
     blockApplySettings(true);
 
@@ -505,6 +520,15 @@ void FreeDVModGUI::displaySettings()
     ui->morseKeyer->setChecked(m_settings.m_modAFInput == FreeDVModSettings::FreeDVModInputAF::FreeDVModInputCWTone);
 
     blockApplySettings(false);
+}
+
+void FreeDVModGUI::displayStreamIndex()
+{
+    if (m_deviceUISet->m_deviceMIMOEngine) {
+        setStreamIndicator(tr("%1").arg(m_settings.m_streamIndex));
+    } else {
+        setStreamIndicator("S"); // single channel indicator
+    }
 }
 
 void FreeDVModGUI::leaveEvent(QEvent*)

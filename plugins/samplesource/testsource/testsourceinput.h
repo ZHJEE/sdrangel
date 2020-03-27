@@ -135,6 +135,20 @@ public:
             SWGSDRangel::SWGDeviceState& response,
             QString& errorMessage);
 
+    virtual int webapiActionsPost(
+            const QStringList& deviceActionsKeys,
+            SWGSDRangel::SWGDeviceActions& actions,
+            QString& errorMessage);
+
+    static void webapiFormatDeviceSettings(
+            SWGSDRangel::SWGDeviceSettings& response,
+            const TestSourceSettings& settings);
+
+    static void webapiUpdateDeviceSettings(
+            TestSourceSettings& settings,
+            const QStringList& deviceSettingsKeys,
+            SWGSDRangel::SWGDeviceSettings& response);
+
 private:
 	DeviceAPI *m_deviceAPI;
     FileRecord *m_fileSink; //!< File sink to record device I/Q output
@@ -148,7 +162,6 @@ private:
     QNetworkRequest m_networkRequest;
 
 	bool applySettings(const TestSourceSettings& settings, bool force);
-    void webapiFormatDeviceSettings(SWGSDRangel::SWGDeviceSettings& response, const TestSourceSettings& settings);
     void webapiReverseSendSettings(QList<QString>& deviceSettingsKeys, const TestSourceSettings& settings, bool force);
     void webapiReverseSendStartStop(bool start);
 

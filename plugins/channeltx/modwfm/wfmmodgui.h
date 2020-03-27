@@ -30,8 +30,6 @@
 class PluginAPI;
 class DeviceUISet;
 class BasebandSampleSource;
-class ThreadedBasebandSampleSource;
-class UpChannelizer;
 
 namespace Ui {
     class WFMModGUI;
@@ -66,8 +64,6 @@ private:
     WFMModSettings m_settings;
     bool m_doApplySettings;
 
-//    ThreadedBasebandSampleSource* m_threadedChannelizer;
-//    UpChannelizer* m_channelizer;
     WFMMod* m_wfmMod;
     MovingAverageUtil<double, double, 20> m_channelPowerDbAvg;
 
@@ -85,6 +81,7 @@ private:
     void blockApplySettings(bool block);
     void applySettings(bool force = false);
     void displaySettings();
+    void displayStreamIndex();
     void updateWithStreamData();
     void updateWithStreamTime();
 

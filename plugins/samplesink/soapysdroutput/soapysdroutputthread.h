@@ -27,6 +27,7 @@
 
 #include "soapysdr/devicesoapysdrshared.h"
 #include "dsp/interpolators.h"
+#include "dsp/interpolatorsif.h"
 
 class SampleSourceFifo;
 
@@ -34,7 +35,7 @@ class SoapySDROutputThread : public QThread {
     Q_OBJECT
 
 public:
-    SoapySDROutputThread(SoapySDR::Device* dev, unsigned int nbTxChannels, QObject* parent = 0);
+    SoapySDROutputThread(SoapySDR::Device* dev, unsigned int nbTxChannels, QObject* parent = nullptr);
     ~SoapySDROutputThread();
 
     void startWork();
@@ -56,6 +57,7 @@ private:
         Interpolators<qint8, SDR_TX_SAMP_SZ, 8> m_interpolators8;
         Interpolators<qint16, SDR_TX_SAMP_SZ, 12> m_interpolators12;
         Interpolators<qint16, SDR_TX_SAMP_SZ, 16> m_interpolators16;
+        InterpolatorsIF<SDR_TX_SAMP_SZ, SDR_TX_SAMP_SZ> m_interpolatorsIF;
 
         Channel() :
             m_sampleFifo(0),
@@ -90,7 +92,12 @@ private:
     void callbackSO8(qint8* buf, qint32 len, unsigned int channel = 0);
     void callbackSO12(qint16* buf, qint32 len, unsigned int channel = 0);
     void callbackSO16(qint16* buf, qint32 len, unsigned int channel = 0);
+    void callbackSOIF(float* buf, qint32 len, unsigned int channel = 0);
     void callbackMO(std::vector<void *>& buffs, qint32 samplesPerChannel);
+    void callbackPart8(qint8* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd, unsigned int channel);
+    void callbackPart12(qint16* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd, unsigned int channel);
+    void callbackPart16(qint16* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd, unsigned int channel);
+    void callbackPartF(float* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd, unsigned int channel);
 };
 
 

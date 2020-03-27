@@ -24,10 +24,13 @@
 #include "dsddemodgui.h"
 #endif
 #include "dsddemod.h"
+#include "dsddemodwebapiadapter.h"
+#include "dsddemodplugin.h"
 
 const PluginDescriptor DSDDemodPlugin::m_pluginDescriptor = {
+    DSDDemod::m_channelId,
 	QString("DSD Demodulator"),
-    QString("4.5.6"),
+    QString("4.12.3"),
 	QString("(c) Edouard Griffiths, F4EXB"),
 	QString("https://github.com/f4exb/sdrangel"),
 	true,
@@ -55,25 +58,29 @@ void DSDDemodPlugin::initPlugin(PluginAPI* pluginAPI)
 
 #ifdef SERVER_MODE
 PluginInstanceGUI* DSDDemodPlugin::createRxChannelGUI(
-        DeviceUISet *deviceUISet __attribute__((unused)),
-        BasebandSampleSink *rxChannel __attribute__((unused)))
+        DeviceUISet *deviceUISet,
+        BasebandSampleSink *rxChannel) const
 {
     return 0;
 }
 #else
-PluginInstanceGUI* DSDDemodPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel)
+PluginInstanceGUI* DSDDemodPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel) const
 {
 	return DSDDemodGUI::create(m_pluginAPI, deviceUISet, rxChannel);
 }
 #endif
 
-BasebandSampleSink* DSDDemodPlugin::createRxChannelBS(DeviceAPI *deviceAPI)
+BasebandSampleSink* DSDDemodPlugin::createRxChannelBS(DeviceAPI *deviceAPI) const
 {
     return new DSDDemod(deviceAPI);
 }
 
-ChannelAPI* DSDDemodPlugin::createRxChannelCS(DeviceAPI *deviceAPI)
+ChannelAPI* DSDDemodPlugin::createRxChannelCS(DeviceAPI *deviceAPI) const
 {
     return new DSDDemod(deviceAPI);
 }
 
+ChannelWebAPIAdapter* DSDDemodPlugin::createChannelWebAPIAdapter() const
+{
+	return new DSDDemodWebAPIAdapter();
+}

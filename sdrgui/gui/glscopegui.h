@@ -76,6 +76,7 @@ public:
     void changeTrigger(int triggerIndex, const ScopeVis::TriggerData& triggerData);
     void addTrigger(const ScopeVis::TriggerData& triggerData);
     void focusOnTrigger(int triggerIndex);
+    void traceLengthChange();
 
 private:
     class TrigUIBlocker
@@ -195,6 +196,7 @@ private slots:
     void on_verticalXY_toggled(bool checked);
     void on_polar_toggled(bool checked);
     void on_polarPoints_toggled(bool checked);
+    void on_polarGrid_toggled(bool checked);
     void on_traceIntensity_valueChanged(int value);
     void on_gridIntensity_valueChanged(int value);
     void on_time_valueChanged(int value);

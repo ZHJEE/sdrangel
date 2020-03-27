@@ -24,11 +24,13 @@
 
 #include "datvdemodgui.h"
 #include "datvdemodplugin.h"
+#include "datvdemodwebapiadapter.h"
 
 const PluginDescriptor DATVDemodPlugin::m_ptrPluginDescriptor =
 {
+    DATVDemod::m_channelId,
     QString("DATV Demodulator"),
-    QString("4.5.1"),
+    QString("4.12.3"),
     QString("(c) F4HKW for SDRAngel using LeanSDR framework (c) F4DAV"),
 	QString("https://github.com/f4exb/sdrangel"),
 	true,
@@ -56,17 +58,22 @@ void DATVDemodPlugin::initPlugin(PluginAPI* ptrPluginAPI)
     m_ptrPluginAPI->registerRxChannel(DATVDemod::m_channelIdURI, DATVDemod::m_channelId, this);
 }
 
-PluginInstanceGUI* DATVDemodPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel)
+PluginInstanceGUI* DATVDemodPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel) const
 {
     return DATVDemodGUI::create(m_ptrPluginAPI, deviceUISet, rxChannel);
 }
 
-BasebandSampleSink* DATVDemodPlugin::createRxChannelBS(DeviceAPI *deviceAPI)
+BasebandSampleSink* DATVDemodPlugin::createRxChannelBS(DeviceAPI *deviceAPI) const
 {
     return new DATVDemod(deviceAPI);
 }
 
-ChannelAPI* DATVDemodPlugin::createRxChannelCS(DeviceAPI *deviceAPI)
+ChannelAPI* DATVDemodPlugin::createRxChannelCS(DeviceAPI *deviceAPI) const
 {
     return new DATVDemod(deviceAPI);
+}
+
+ChannelWebAPIAdapter* DATVDemodPlugin::createChannelWebAPIAdapter() const
+{
+	return new DATVDemodWebAPIAdapter();
 }

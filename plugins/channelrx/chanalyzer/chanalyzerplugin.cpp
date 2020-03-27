@@ -21,10 +21,12 @@
 #include "chanalyzer.h"
 #include "chanalyzerplugin.h"
 #include "chanalyzergui.h"
+#include "chanalyzerwebapiadapter.h"
 
 const PluginDescriptor ChannelAnalyzerPlugin::m_pluginDescriptor = {
+    ChannelAnalyzer::m_channelId,
 	QString("Channel Analyzer"),
-	QString("4.5.1"),
+	QString("4.12.3"),
 	QString("(c) Edouard Griffiths, F4EXB"),
 	QString("https://github.com/f4exb/sdrangel"),
 	true,
@@ -50,18 +52,22 @@ void ChannelAnalyzerPlugin::initPlugin(PluginAPI* pluginAPI)
 	m_pluginAPI->registerRxChannel(ChannelAnalyzer::m_channelIdURI, ChannelAnalyzer::m_channelId, this);
 }
 
-PluginInstanceGUI* ChannelAnalyzerPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel)
+PluginInstanceGUI* ChannelAnalyzerPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel) const
 {
     return ChannelAnalyzerGUI::create(m_pluginAPI, deviceUISet, rxChannel);
 }
 
-BasebandSampleSink* ChannelAnalyzerPlugin::createRxChannelBS(DeviceAPI *deviceAPI)
+BasebandSampleSink* ChannelAnalyzerPlugin::createRxChannelBS(DeviceAPI *deviceAPI) const
 {
     return new ChannelAnalyzer(deviceAPI);
 }
 
-ChannelAPI* ChannelAnalyzerPlugin::createRxChannelCS(DeviceAPI *deviceAPI)
+ChannelAPI* ChannelAnalyzerPlugin::createRxChannelCS(DeviceAPI *deviceAPI) const
 {
     return new ChannelAnalyzer(deviceAPI);
 }
 
+ChannelWebAPIAdapter* ChannelAnalyzerPlugin::createChannelWebAPIAdapter() const
+{
+	return new ChannelAnalyzerWebAPIAdapter();
+}

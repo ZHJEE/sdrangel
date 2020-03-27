@@ -23,6 +23,7 @@
 #include "util/simpleserializer.h"
 #include "util/db.h"
 #include "gui/basicchannelsettingsdialog.h"
+#include "gui/devicestreamselectiondialog.h"
 #include "ui_udpsinkgui.h"
 #include "mainwindow.h"
 
@@ -90,9 +91,9 @@ bool UDPSinkGUI::deserialize(const QByteArray& data)
 
 bool UDPSinkGUI::handleMessage(const Message& message )
 {
-    if (UDPSink::MsgConfigureUDPSource::match(message))
+    if (UDPSink::MsgConfigureUDPSink::match(message))
     {
-        const UDPSink::MsgConfigureUDPSource& cfg = (UDPSink::MsgConfigureUDPSource&) message;
+        const UDPSink::MsgConfigureUDPSink& cfg = (UDPSink::MsgConfigureUDPSink&) message;
         m_settings = cfg.getSettings();
         blockApplySettings(true);
         displaySettings();
@@ -190,7 +191,7 @@ UDPSinkGUI::UDPSinkGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, BasebandS
 	        64, // FFT size
 	        10, // overlapping %
 	        0,  // number of averaging samples
-	        0,  // no averaging
+	        SpectrumVis::AvgModeNone,  // no averaging
 	        FFTWindow::BlackmanHarris,
 	        false); // logarithmic scale
 
@@ -284,9 +285,20 @@ void UDPSinkGUI::displaySettings()
     ui->applyBtn->setEnabled(false);
     ui->applyBtn->setStyleSheet("QPushButton { background:rgb(79,79,79); }");
 
+    displayStreamIndex();
+
     blockApplySettings(false);
 
     ui->glSpectrum->setSampleRate(m_settings.m_outputSampleRate);
+}
+
+void UDPSinkGUI::displayStreamIndex()
+{
+    if (m_deviceUISet->m_deviceMIMOEngine) {
+        setStreamIndicator(tr("%1").arg(m_settings.m_streamIndex));
+    } else {
+        setStreamIndicator("S"); // single channel indicator
+    }
 }
 
 void UDPSinkGUI::setSampleFormatIndex(const UDPSinkSettings::SampleFormat& sampleFormat)
@@ -391,7 +403,7 @@ void UDPSinkGUI::applySettingsImmediate(bool force)
 {
 	if (m_doApplySettings)
 	{
-        UDPSink::MsgConfigureUDPSource* message = UDPSink::MsgConfigureUDPSource::create( m_settings, force);
+        UDPSink::MsgConfigureUDPSink* message = UDPSink::MsgConfigureUDPSink::create( m_settings, force);
         m_udpSink->getInputMessageQueue()->push(message);
 	}
 }
@@ -400,11 +412,7 @@ void UDPSinkGUI::applySettings(bool force)
 {
 	if (m_doApplySettings)
 	{
-        UDPSink::MsgConfigureChannelizer* channelConfigMsg = UDPSink::MsgConfigureChannelizer::create(
-                m_settings.m_outputSampleRate, m_channelMarker.getCenterFrequency());
-        m_udpSink->getInputMessageQueue()->push(channelConfigMsg);
-
-        UDPSink::MsgConfigureUDPSource* message = UDPSink::MsgConfigureUDPSource::create( m_settings, force);
+        UDPSink::MsgConfigureUDPSink* message = UDPSink::MsgConfigureUDPSink::create( m_settings, force);
         m_udpSink->getInputMessageQueue()->push(message);
 
 		ui->applyBtn->setEnabled(false);
@@ -606,9 +614,8 @@ void UDPSinkGUI::on_squelchGate_valueChanged(int value)
 
 void UDPSinkGUI::onWidgetRolled(QWidget* widget, bool rollDown)
 {
-	if ((widget == ui->spectrumBox) && (m_udpSink != 0))
-	{
-		m_udpSink->setSpectrum(m_udpSink->getInputMessageQueue(), rollDown);
+	if ((widget == ui->spectrumBox) && (m_udpSink)) {
+        m_udpSink->enableSpectrum(rollDown);
 	}
 }
 
@@ -639,6 +646,20 @@ void UDPSinkGUI::onMenuDialogCalled(const QPoint &p)
         setTitleColor(m_settings.m_rgbColor);
 
         applySettingsImmediate();
+    }
+    else if ((m_contextMenuType == ContextMenuStreamSettings) && (m_deviceUISet->m_deviceMIMOEngine))
+    {
+        DeviceStreamSelectionDialog dialog(this);
+        dialog.setNumberOfStreams(m_udpSink->getNumberOfDeviceStreams());
+        dialog.setStreamIndex(m_settings.m_streamIndex);
+        dialog.move(p);
+        dialog.exec();
+
+        m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+        m_channelMarker.clearStreamIndexes();
+        m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+        displayStreamIndex();
+        applySettings();
     }
 
     resetContextMenuType();

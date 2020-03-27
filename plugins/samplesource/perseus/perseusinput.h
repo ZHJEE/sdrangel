@@ -140,6 +140,20 @@ public:
             SWGSDRangel::SWGDeviceState& response,
             QString& errorMessage);
 
+    virtual int webapiActionsPost(
+            const QStringList& deviceActionsKeys,
+            SWGSDRangel::SWGDeviceActions& actions,
+            QString& errorMessage);
+
+    static void webapiFormatDeviceSettings(
+            SWGSDRangel::SWGDeviceSettings& response,
+            const PerseusSettings& settings);
+
+    static void webapiUpdateDeviceSettings(
+            PerseusSettings& settings,
+            const QStringList& deviceSettingsKeys,
+            SWGSDRangel::SWGDeviceSettings& response);
+
     const std::vector<uint32_t>& getSampleRates() const { return m_sampleRates; }
 
 private:
@@ -158,7 +172,6 @@ private:
     void closeDevice();
     void setDeviceCenterFrequency(quint64 freq, const PerseusSettings& settings);
     bool applySettings(const PerseusSettings& settings, bool force = false);
-    void webapiFormatDeviceSettings(SWGSDRangel::SWGDeviceSettings& response, const PerseusSettings& settings);
     void webapiFormatDeviceReport(SWGSDRangel::SWGDeviceReport& response);
     void webapiReverseSendSettings(QList<QString>& deviceSettingsKeys, const PerseusSettings& settings, bool force);
     void webapiReverseSendStartStop(bool start);

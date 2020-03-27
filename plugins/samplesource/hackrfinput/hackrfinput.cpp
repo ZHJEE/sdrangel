@@ -24,6 +24,8 @@
 
 #include "SWGDeviceSettings.h"
 #include "SWGDeviceState.h"
+#include "SWGDeviceActions.h"
+#include "SWGHackRFInputActions.h"
 
 #include "util/simpleserializer.h"
 #include "dsp/dspcommands.h"
@@ -52,6 +54,7 @@ HackRFInput::HackRFInput(DeviceAPI *deviceAPI) :
     openDevice();
 
     m_fileSink = new FileRecord(QString("test_%1.sdriq").arg(m_deviceAPI->getDeviceUID()));
+    m_deviceAPI->setNbSourceStreams(1);
     m_deviceAPI->addAncillarySink(m_fileSink);
 
     m_deviceAPI->setBuddySharedPtr(&m_sharedParams);
@@ -430,21 +433,29 @@ bool HackRFInput::applySettings(const HackRFInputSettings& settings, bool force)
     if ((m_settings.m_fcPos != settings.m_fcPos) || force) {
         reverseAPIKeys.append("fcPos");
     }
+    if ((m_settings.m_transverterMode != settings.m_transverterMode) || force) {
+        reverseAPIKeys.append("transverterMode");
+    }
+    if ((m_settings.m_transverterDeltaFrequency != settings.m_transverterDeltaFrequency) || force) {
+        reverseAPIKeys.append("transverterDeltaFrequency");
+    }
 
 	if ((m_settings.m_centerFrequency != settings.m_centerFrequency) ||
 	    (m_settings.m_devSampleRate != settings.m_devSampleRate) ||
         (m_settings.m_LOppmTenths != settings.m_LOppmTenths) ||
         (m_settings.m_log2Decim != settings.m_log2Decim) ||
-        (m_settings.m_fcPos != settings.m_fcPos) || force)
+        (m_settings.m_fcPos != settings.m_fcPos) ||
+        (m_settings.m_transverterMode != settings.m_transverterMode) ||
+        (m_settings.m_transverterDeltaFrequency != settings.m_transverterDeltaFrequency) || force)
 	{
         qint64 deviceCenterFrequency = DeviceSampleSource::calculateDeviceCenterFrequency(
                 settings.m_centerFrequency,
-                0,
+                settings.m_transverterDeltaFrequency,
                 settings.m_log2Decim,
                 (DeviceSampleSource::fcPos_t) settings.m_fcPos,
                 settings.m_devSampleRate,
                 DeviceSampleSource::FrequencyShiftScheme::FSHIFT_TXSYNC,
-                false);
+                settings.m_transverterMode);
 		setDeviceCenterFrequency(deviceCenterFrequency, settings.m_LOppmTenths);
 
         if (m_deviceAPI->getSinkBuddies().size() > 0) // forward to buddy if necessary
@@ -601,7 +612,26 @@ int HackRFInput::webapiSettingsPutPatch(
 {
     (void) errorMessage;
     HackRFInputSettings settings = m_settings;
+    webapiUpdateDeviceSettings(settings, deviceSettingsKeys, response);
 
+    MsgConfigureHackRF *msg = MsgConfigureHackRF::create(settings, force);
+    m_inputMessageQueue.push(msg);
+
+    if (m_guiMessageQueue) // forward to GUI if any
+    {
+        MsgConfigureHackRF *msgToGUI = MsgConfigureHackRF::create(settings, force);
+        m_guiMessageQueue->push(msgToGUI);
+    }
+
+    webapiFormatDeviceSettings(response, settings);
+    return 200;
+}
+
+void HackRFInput::webapiUpdateDeviceSettings(
+        HackRFInputSettings& settings,
+        const QStringList& deviceSettingsKeys,
+        SWGSDRangel::SWGDeviceSettings& response)
+{
     if (deviceSettingsKeys.contains("centerFrequency")) {
         settings.m_centerFrequency = response.getHackRfInputSettings()->getCenterFrequency();
     }
@@ -644,6 +674,12 @@ int HackRFInput::webapiSettingsPutPatch(
     if (deviceSettingsKeys.contains("fileRecordName")) {
         settings.m_fileRecordName = *response.getHackRfInputSettings()->getFileRecordName();
     }
+    if (deviceSettingsKeys.contains("transverterDeltaFrequency")) {
+        settings.m_transverterDeltaFrequency = response.getHackRfInputSettings()->getTransverterDeltaFrequency();
+    }
+    if (deviceSettingsKeys.contains("transverterMode")) {
+        settings.m_transverterMode = response.getHackRfInputSettings()->getTransverterMode() != 0;
+    }
     if (deviceSettingsKeys.contains("useReverseAPI")) {
         settings.m_useReverseAPI = response.getHackRfInputSettings()->getUseReverseApi() != 0;
     }
@@ -656,18 +692,6 @@ int HackRFInput::webapiSettingsPutPatch(
     if (deviceSettingsKeys.contains("reverseAPIDeviceIndex")) {
         settings.m_reverseAPIDeviceIndex = response.getHackRfInputSettings()->getReverseApiDeviceIndex();
     }
-
-    MsgConfigureHackRF *msg = MsgConfigureHackRF::create(settings, force);
-    m_inputMessageQueue.push(msg);
-
-    if (m_guiMessageQueue) // forward to GUI if any
-    {
-        MsgConfigureHackRF *msgToGUI = MsgConfigureHackRF::create(settings, force);
-        m_guiMessageQueue->push(msgToGUI);
-    }
-
-    webapiFormatDeviceSettings(response, settings);
-    return 200;
 }
 
 void HackRFInput::webapiFormatDeviceSettings(SWGSDRangel::SWGDeviceSettings& response, const HackRFInputSettings& settings)
@@ -684,6 +708,8 @@ void HackRFInput::webapiFormatDeviceSettings(SWGSDRangel::SWGDeviceSettings& res
     response.getHackRfInputSettings()->setLnaExt(settings.m_lnaExt ? 1 : 0);
     response.getHackRfInputSettings()->setDcBlock(settings.m_dcBlock ? 1 : 0);
     response.getHackRfInputSettings()->setIqCorrection(settings.m_iqCorrection ? 1 : 0);
+    response.getHackRfInputSettings()->setTransverterDeltaFrequency(settings.m_transverterDeltaFrequency);
+    response.getHackRfInputSettings()->setTransverterMode(settings.m_transverterMode ? 1 : 0);
 
     if (response.getHackRfInputSettings()->getFileRecordName()) {
         *response.getHackRfInputSettings()->getFileRecordName() = settings.m_fileRecordName;
@@ -729,6 +755,37 @@ int HackRFInput::webapiRun(
     }
 
     return 200;
+}
+
+int HackRFInput::webapiActionsPost(
+        const QStringList& deviceActionsKeys,
+        SWGSDRangel::SWGDeviceActions& query,
+        QString& errorMessage)
+{
+    SWGSDRangel::SWGHackRFInputActions *swgHackRFInputActions = query.getHackRfInputActions();
+
+    if (swgHackRFInputActions)
+    {
+        if (deviceActionsKeys.contains("record"))
+        {
+            bool record = swgHackRFInputActions->getRecord() != 0;
+            MsgFileRecord *msg = MsgFileRecord::create(record);
+            getInputMessageQueue()->push(msg);
+
+            if (getMessageQueueToGUI())
+            {
+                MsgFileRecord *msgToGUI = MsgFileRecord::create(record);
+                getMessageQueueToGUI()->push(msgToGUI);
+            }
+        }
+
+        return 202;
+    }
+    else
+    {
+        errorMessage = "Missing HackRFInputActions in query";
+        return 400;
+    }
 }
 
 void HackRFInput::webapiReverseSendSettings(QList<QString>& deviceSettingsKeys, const HackRFInputSettings& settings, bool force)
@@ -781,6 +838,12 @@ void HackRFInput::webapiReverseSendSettings(QList<QString>& deviceSettingsKeys, 
     if (deviceSettingsKeys.contains("fileRecordName") || force) {
         swgHackRFInputSettings->setFileRecordName(new QString(settings.m_fileRecordName));
     }
+    if (deviceSettingsKeys.contains("transverterDeltaFrequency") || force) {
+        swgHackRFInputSettings->setTransverterDeltaFrequency(settings.m_transverterDeltaFrequency);
+    }
+    if (deviceSettingsKeys.contains("transverterMode") || force) {
+        swgHackRFInputSettings->setTransverterMode(settings.m_transverterMode ? 1 : 0);
+    }
 
     QString deviceSettingsURL = QString("http://%1:%2/sdrangel/deviceset/%3/device/settings")
             .arg(settings.m_reverseAPIAddress)
@@ -789,13 +852,14 @@ void HackRFInput::webapiReverseSendSettings(QList<QString>& deviceSettingsKeys, 
     m_networkRequest.setUrl(QUrl(deviceSettingsURL));
     m_networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-    QBuffer *buffer=new QBuffer();
+    QBuffer *buffer = new QBuffer();
     buffer->open((QBuffer::ReadWrite));
     buffer->write(swgDeviceSettings->asJson().toUtf8());
     buffer->seek(0);
 
     // Always use PATCH to avoid passing reverse API settings
-    m_networkManager->sendCustomRequest(m_networkRequest, "PATCH", buffer);
+    QNetworkReply *reply = m_networkManager->sendCustomRequest(m_networkRequest, "PATCH", buffer);
+    buffer->setParent(reply);
 
     delete swgDeviceSettings;
 }
@@ -814,16 +878,20 @@ void HackRFInput::webapiReverseSendStartStop(bool start)
     m_networkRequest.setUrl(QUrl(deviceSettingsURL));
     m_networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-    QBuffer *buffer=new QBuffer();
+    QBuffer *buffer = new QBuffer();
     buffer->open((QBuffer::ReadWrite));
     buffer->write(swgDeviceSettings->asJson().toUtf8());
     buffer->seek(0);
+    QNetworkReply *reply;
 
     if (start) {
-        m_networkManager->sendCustomRequest(m_networkRequest, "POST", buffer);
+        reply = m_networkManager->sendCustomRequest(m_networkRequest, "POST", buffer);
     } else {
-        m_networkManager->sendCustomRequest(m_networkRequest, "DELETE", buffer);
+        reply = m_networkManager->sendCustomRequest(m_networkRequest, "DELETE", buffer);
     }
+
+    buffer->setParent(reply);
+    delete swgDeviceSettings;
 }
 
 void HackRFInput::networkManagerFinished(QNetworkReply *reply)
@@ -836,10 +904,13 @@ void HackRFInput::networkManagerFinished(QNetworkReply *reply)
                 << " error(" << (int) replyError
                 << "): " << replyError
                 << ": " << reply->errorString();
-        return;
+    }
+    else
+    {
+        QString answer = reply->readAll();
+        answer.chop(1); // remove last \n
+        qDebug("HackRFInput::networkManagerFinished: reply:\n%s", answer.toStdString().c_str());
     }
 
-    QString answer = reply->readAll();
-    answer.chop(1); // remove last \n
-    qDebug("HackRFInput::networkManagerFinished: reply:\n%s", answer.toStdString().c_str());
+    reply->deleteLater();
 }

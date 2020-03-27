@@ -6,6 +6,7 @@ presets/*
 LOCAL/*
 sdrangelove.supp
 .cproject
+.flatpak-builder/
 .project
 .pydevproject
 .vscode/
@@ -22,3 +23,4 @@ debian/debhelper-build-stamp
 obj-x86_64-linux-gnu/*
 **/venv*/
 *.pyc
+.DS_Store

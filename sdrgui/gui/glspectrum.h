@@ -96,6 +96,12 @@ public:
 	void setWaterfallShare(Real waterfallShare);
 	void connectTimer(const QTimer& timer);
 
+    void setDisplayedStream(bool sourceOrSink, int streamIndex)
+    {
+        m_displaySourceOrSink = sourceOrSink;
+        m_displayStreamIndex = streamIndex;
+    }
+
 private:
 	struct ChannelMarkerState {
 		ChannelMarker* m_channelMarker;
@@ -151,6 +157,7 @@ private:
 
 	Real m_waterfallShare;
 
+    int m_leftMargin;
 	QPixmap m_leftMarginPixmap;
 	QPixmap m_frequencyPixmap;
 	ScaleEngine m_timeScale;
@@ -179,8 +186,9 @@ private:
 	QMatrix4x4 m_glHistogramSpectrumMatrix;
 	QMatrix4x4 m_glHistogramBoxMatrix;
 	bool m_displayHistogram;
-
 	bool m_displayChanged;
+    bool m_displaySourceOrSink;
+    int m_displayStreamIndex;
 
 	GLShaderSimple m_glShaderSimple;
 	GLShaderTextured m_glShaderLeftScale;
@@ -211,6 +219,7 @@ private:
 	void mouseMoveEvent(QMouseEvent* event);
 	void mousePressEvent(QMouseEvent* event);
 	void mouseReleaseEvent(QMouseEvent* event);
+    void wheelEvent(QWheelEvent*);
 
 	void enterEvent(QEvent* event);
 	void leaveEvent(QEvent* event);

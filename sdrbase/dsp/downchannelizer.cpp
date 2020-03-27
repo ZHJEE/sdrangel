@@ -16,28 +16,25 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.          //
 ///////////////////////////////////////////////////////////////////////////////////
 
-#include <dsp/downchannelizer.h>
-#include "dsp/inthalfbandfilter.h"
-#include "dsp/dspcommands.h"
-#include "dsp/hbfilterchainconverter.h"
-
 #include <QString>
 #include <QDebug>
 
-MESSAGE_CLASS_DEFINITION(DownChannelizer::MsgChannelizerNotification, Message)
-MESSAGE_CLASS_DEFINITION(DownChannelizer::MsgSetChannelizer, Message)
+#include "dsp/inthalfbandfilter.h"
+#include "dsp/dspcommands.h"
+#include "dsp/hbfilterchainconverter.h"
+#include "downchannelizer.h"
 
-DownChannelizer::DownChannelizer(BasebandSampleSink* sampleSink) :
+DownChannelizer::DownChannelizer(ChannelSampleSink* sampleSink) :
     m_filterChainSetMode(false),
 	m_sampleSink(sampleSink),
-	m_inputSampleRate(0),
+	m_basebandSampleRate(0),
 	m_requestedOutputSampleRate(0),
 	m_requestedCenterFrequency(0),
-	m_currentOutputSampleRate(0),
-	m_currentCenterFrequency(0)
+    m_channelSampleRate(0),
+	m_channelFrequencyOffset(0),
+    m_log2Decim(0),
+    m_filterChainHash(0)
 {
-	QString name = "DownChannelizer(" + m_sampleSink->objectName() + ")";
-	setObjectName(name);
 }
 
 DownChannelizer::~DownChannelizer()
@@ -45,34 +42,21 @@ DownChannelizer::~DownChannelizer()
 	freeFilterChain();
 }
 
-void DownChannelizer::configure(MessageQueue* messageQueue, int sampleRate, int centerFrequency)
+void DownChannelizer::feed(const SampleVector::const_iterator& begin, const SampleVector::const_iterator& end)
 {
-	Message* cmd = new DSPConfigureChannelizer(sampleRate, centerFrequency);
-	messageQueue->push(cmd);
-}
-
-void DownChannelizer::set(MessageQueue* messageQueue, unsigned int log2Decim, unsigned int filterChainHash)
-{
-    Message* cmd = new MsgSetChannelizer(log2Decim, filterChainHash);
-    messageQueue->push(cmd);
-}
-
-void DownChannelizer::feed(const SampleVector::const_iterator& begin, const SampleVector::const_iterator& end, bool positiveOnly)
-{
-	if(m_sampleSink == 0) {
+	if (m_sampleSink == 0)
+    {
 		m_sampleBuffer.clear();
 		return;
 	}
 
 	if (m_filterStages.size() == 0) // optimization when no downsampling is done anyway
 	{
-		m_sampleSink->feed(begin, end, positiveOnly);
+		m_sampleSink->feed(begin, end);
 	}
 	else
 	{
-		m_mutex.lock();
-
-		for(SampleVector::const_iterator sample = begin; sample != end; ++sample)
+		for (SampleVector::const_iterator sample = begin; sample != end; ++sample)
 		{
 			Sample s(*sample);
 			FilterStages::iterator stage = m_filterStages.begin();
@@ -83,8 +67,7 @@ void DownChannelizer::feed(const SampleVector::const_iterator& begin, const Samp
                 s.m_real /= 2; // avoid saturation on 16 bit samples
                 s.m_imag /= 2;
 #endif
-				if(!(*stage)->work(&s))
-				{
+				if (!(*stage)->work(&s)) {
 					break;
 				}
 			}
@@ -99,150 +82,84 @@ void DownChannelizer::feed(const SampleVector::const_iterator& begin, const Samp
 			}
 		}
 
-		m_mutex.unlock();
-
-		m_sampleSink->feed(m_sampleBuffer.begin(), m_sampleBuffer.end(), positiveOnly);
+		m_sampleSink->feed(m_sampleBuffer.begin(), m_sampleBuffer.end());
 		m_sampleBuffer.clear();
 	}
 }
 
-void DownChannelizer::start()
+void DownChannelizer::setChannelization(int requestedSampleRate, qint64 requestedCenterFrequency)
 {
-	if (m_sampleSink != 0)
-	{
-		qDebug() << "DownChannelizer::start: thread: " << thread()
-				<< " m_inputSampleRate: " << m_inputSampleRate
-				<< " m_requestedOutputSampleRate: " << m_requestedOutputSampleRate
-				<< " m_requestedCenterFrequency: " << m_requestedCenterFrequency;
-		m_sampleSink->start();
-	}
+    m_requestedOutputSampleRate = requestedSampleRate;
+    m_requestedCenterFrequency = requestedCenterFrequency;
+    applyChannelization();
 }
 
-void DownChannelizer::stop()
+void DownChannelizer::setBasebandSampleRate(int basebandSampleRate, bool decim)
 {
-	if(m_sampleSink != 0)
-		m_sampleSink->stop();
-}
+    m_basebandSampleRate = basebandSampleRate;
 
-bool DownChannelizer::handleMessage(const Message& cmd)
-{
-	// TODO: apply changes only if input sample rate or requested output sample rate change. Change of center frequency has no impact.
-
-	if (DSPSignalNotification::match(cmd))
-	{
-		DSPSignalNotification& notif = (DSPSignalNotification&) cmd;
-		m_inputSampleRate = notif.getSampleRate();
-		qDebug() << "DownChannelizer::handleMessage: DSPSignalNotification: m_inputSampleRate: " << m_inputSampleRate;
-
-        if (!m_filterChainSetMode) {
-		    applyConfiguration();
-        }
-
-		if (m_sampleSink != 0)
-		{
-		    DSPSignalNotification* rep = new DSPSignalNotification(notif); // make a copy
-			m_sampleSink->getInputMessageQueue()->push(rep);
-		}
-
-		emit inputSampleRateChanged();
-		return true;
-	}
-	else if (DSPConfigureChannelizer::match(cmd))
-	{
-		DSPConfigureChannelizer& chan = (DSPConfigureChannelizer&) cmd;
-		m_requestedOutputSampleRate = chan.getSampleRate();
-		m_requestedCenterFrequency = chan.getCenterFrequency();
-
-            // qDebug() << "DownChannelizer::handleMessage: DSPConfigureChannelizer:"
-            // 		<< " m_requestedOutputSampleRate: " << m_requestedOutputSampleRate
-            // 		<< " m_requestedCenterFrequency: " << m_requestedCenterFrequency;
-
-		applyConfiguration();
-
-		return true;
-	}
-    else if (MsgSetChannelizer::match(cmd))
-    {
-        MsgSetChannelizer& chan = (MsgSetChannelizer&) cmd;
-        qDebug() << "DownChannelizer::handleMessage: MsgSetChannelizer";
-        applySetting(chan.getLog2Decim(), chan.getFilterChainHash());
-
-        return true;
+    if (decim) {
+        applyDecimation();
+    } else {
+        applyChannelization();
     }
-    else if (BasebandSampleSink::MsgThreadedSink::match(cmd))
-    {
-        qDebug() << "DownChannelizer::handleMessage: MsgThreadedSink: forwarded to demod";
-        return m_sampleSink->handleMessage(cmd); // this message is passed to the demod
-    }
-	else
-	{
-        qDebug() << "DownChannelizer::handleMessage: " << cmd.getIdentifier() << " unhandled";
-	    return false;
-	}
 }
 
-void DownChannelizer::applyConfiguration()
+void DownChannelizer::applyChannelization()
 {
     m_filterChainSetMode = false;
 
-	if (m_inputSampleRate == 0)
+	if (m_basebandSampleRate == 0)
 	{
-		qDebug() << "DownChannelizer::applyConfiguration: m_inputSampleRate=0 aborting";
-		return;
+		qDebug() << "DownChannelizer::applyChannelization: aborting (in=0)"
+            << " in (baseband):" << m_basebandSampleRate
+            << " req:" << m_requestedOutputSampleRate
+            << " out (channel):" << m_channelSampleRate
+            << " fc:" << m_channelFrequencyOffset;
+        return;
 	}
-
-	m_mutex.lock();
 
 	freeFilterChain();
 
-	m_currentCenterFrequency = createFilterChain(
-		m_inputSampleRate / -2, m_inputSampleRate / 2,
+	m_channelFrequencyOffset = createFilterChain(
+		m_basebandSampleRate / -2, m_basebandSampleRate / 2,
 		m_requestedCenterFrequency - m_requestedOutputSampleRate / 2, m_requestedCenterFrequency + m_requestedOutputSampleRate / 2);
 
-	m_mutex.unlock();
+	m_channelSampleRate = m_basebandSampleRate / (1 << m_filterStages.size());
 
-	//debugFilterChain();
-
-	m_currentOutputSampleRate = m_inputSampleRate / (1 << m_filterStages.size());
-
-	qDebug() << "DownChannelizer::applyConfiguration in=" << m_inputSampleRate
-			<< ", req=" << m_requestedOutputSampleRate
-			<< ", out=" << m_currentOutputSampleRate
-			<< ", fc=" << m_currentCenterFrequency;
-
-	if (m_sampleSink != 0)
-	{
-		MsgChannelizerNotification *notif = MsgChannelizerNotification::create(m_currentOutputSampleRate, m_currentCenterFrequency);
-		m_sampleSink->getInputMessageQueue()->push(notif);
-	}
+	qDebug() << "DownChannelizer::applyChannelization done:"
+        << " in (baseband):" << m_basebandSampleRate
+		<< " req:" << m_requestedOutputSampleRate
+		<< " out (channel):" << m_channelSampleRate
+		<< " fc:" << m_channelFrequencyOffset;
 }
 
-void DownChannelizer::applySetting(unsigned int log2Decim, unsigned int filterChainHash)
+void DownChannelizer::setDecimation(unsigned int log2Decim, unsigned int filterChainHash)
+{
+    m_log2Decim = log2Decim;
+    m_filterChainHash = filterChainHash;
+    applyDecimation();
+}
+
+void DownChannelizer::applyDecimation()
 {
     m_filterChainSetMode = true;
     std::vector<unsigned int> stageIndexes;
-    m_currentCenterFrequency = m_inputSampleRate * HBFilterChainConverter::convertToIndexes(log2Decim, filterChainHash, stageIndexes);
-    m_requestedCenterFrequency = m_currentCenterFrequency;
+    m_channelFrequencyOffset = m_basebandSampleRate * HBFilterChainConverter::convertToIndexes(m_log2Decim, m_filterChainHash, stageIndexes);
+    m_requestedCenterFrequency = m_channelFrequencyOffset;
 
-    m_mutex.lock();
     freeFilterChain();
-    setFilterChain(stageIndexes);
-    m_mutex.unlock();
 
-    m_currentOutputSampleRate = m_inputSampleRate / (1 << m_filterStages.size());
-    m_requestedOutputSampleRate = m_currentOutputSampleRate;
+    m_channelFrequencyOffset = m_basebandSampleRate * setFilterChain(stageIndexes);
+    m_channelSampleRate = m_basebandSampleRate / (1 << m_filterStages.size());
+    m_requestedOutputSampleRate = m_channelSampleRate;
 
-	qDebug() << "DownChannelizer::applySetting inputSampleRate:" << m_inputSampleRate
-			<< " currentOutputSampleRate: " << m_currentOutputSampleRate
-			<< " currentCenterFrequency: " << m_currentCenterFrequency
-            << " nb_filters: " << stageIndexes.size()
-            << " nb_stages: " << m_filterStages.size();
-
-	if (m_sampleSink != 0)
-	{
-		MsgChannelizerNotification *notif = MsgChannelizerNotification::create(m_currentOutputSampleRate, m_currentCenterFrequency);
-		m_sampleSink->getInputMessageQueue()->push(notif);
-	}
+	qDebug() << "UpChannelizer::applyInterpolation:"
+            << " m_log2Interp:" << m_log2Decim
+            << " m_filterChainHash:" << m_filterChainHash
+            << " out:" << m_basebandSampleRate
+			<< " in:" << m_channelSampleRate
+			<< " fc:" << m_channelFrequencyOffset;
 }
 
 #ifdef SDR_RX_SAMPLE_24BIT
@@ -340,24 +257,37 @@ Real DownChannelizer::createFilterChain(Real sigStart, Real sigEnd, Real chanSta
 	return ofs;
 }
 
-void DownChannelizer::setFilterChain(const std::vector<unsigned int>& stageIndexes)
+double DownChannelizer::setFilterChain(const std::vector<unsigned int>& stageIndexes)
 {
     // filters are described from lower to upper level but the chain is constructed the other way round
     std::vector<unsigned int>::const_reverse_iterator rit = stageIndexes.rbegin();
+    double ofs = 0.0, ofs_stage = 0.25;
 
     // Each index is a base 3 number with 0 = low, 1 = center, 2 = high
     // Functions at upper level will convert a number to base 3 to describe the filter chain. Common converting
     // algorithms will go from LSD to MSD. This explains the reverse order.
     for (; rit != stageIndexes.rend(); ++rit)
     {
-        if (*rit == 0) {
+        if (*rit == 0)
+        {
             m_filterStages.push_back(new FilterStage(FilterStage::ModeLowerHalf));
-        } else if (*rit == 1) {
+            ofs -= ofs_stage;
+            qDebug("DownChannelizer::setFilterChain: lower half: ofs: %f", ofs);
+        }
+        else if (*rit == 1)
+        {
             m_filterStages.push_back(new FilterStage(FilterStage::ModeCenter));
-        } else if (*rit == 2) {
+            qDebug("DownChannelizer::setFilterChain: center: ofs: %f", ofs);
+        }
+        else if (*rit == 2)
+        {
             m_filterStages.push_back(new FilterStage(FilterStage::ModeUpperHalf));
+            ofs += ofs_stage;
+            qDebug("DownChannelizer::setFilterChain: upper half: ofs: %f", ofs);
         }
     }
+
+    return ofs;
 }
 
 void DownChannelizer::freeFilterChain()

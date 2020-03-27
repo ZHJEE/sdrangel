@@ -19,6 +19,7 @@
 
 #include "device/deviceuiset.h"
 #include "gui/basicchannelsettingsdialog.h"
+#include "gui/devicestreamselectiondialog.h"
 #include "dsp/hbfilterchainconverter.h"
 #include "mainwindow.h"
 
@@ -82,11 +83,10 @@ bool LocalSourceGUI::deserialize(const QByteArray& data)
 
 bool LocalSourceGUI::handleMessage(const Message& message)
 {
-    if (LocalSource::MsgSampleRateNotification::match(message))
+    if (LocalSource::MsgBasebandSampleRateNotification::match(message))
     {
-        LocalSource::MsgSampleRateNotification& notif = (LocalSource::MsgSampleRateNotification&) message;
-        //m_channelMarker.setBandwidth(notif.getSampleRate());
-        m_sampleRate = notif.getSampleRate();
+        LocalSource::MsgBasebandSampleRateNotification& notif = (LocalSource::MsgBasebandSampleRateNotification&) message;
+        m_basebandSampleRate = notif.getBasebandSampleRate();
         displayRateAndShift();
         return true;
     }
@@ -110,7 +110,7 @@ LocalSourceGUI::LocalSourceGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, B
         ui(new Ui::LocalSourceGUI),
         m_pluginAPI(pluginAPI),
         m_deviceUISet(deviceUISet),
-        m_sampleRate(0),
+        m_basebandSampleRate(0),
         m_tickCount(0)
 {
     ui->setupUi(this);
@@ -125,6 +125,7 @@ LocalSourceGUI::LocalSourceGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, B
     m_channelMarker.setColor(m_settings.m_rgbColor);
     m_channelMarker.setCenterFrequency(0);
     m_channelMarker.setTitle("Local Source");
+    m_channelMarker.setSourceOrSinkStream(false);
     m_channelMarker.blockSignals(false);
     m_channelMarker.setVisible(true); // activate signal on the last setting only
 
@@ -167,45 +168,45 @@ void LocalSourceGUI::applySettings(bool force)
     }
 }
 
-void LocalSourceGUI::applyChannelSettings()
-{
-    if (m_doApplySettings)
-    {
-        LocalSource::MsgConfigureChannelizer *msgChan = LocalSource::MsgConfigureChannelizer::create(
-                m_settings.m_log2Interp,
-                m_settings.m_filterChainHash);
-        m_localSource->getInputMessageQueue()->push(msgChan);
-    }
-}
-
 void LocalSourceGUI::displaySettings()
 {
     m_channelMarker.blockSignals(true);
     m_channelMarker.setCenterFrequency(0);
     m_channelMarker.setTitle(m_settings.m_title);
-    m_channelMarker.setBandwidth(m_sampleRate); // TODO
+    m_channelMarker.setBandwidth(m_basebandSampleRate / (1<<m_settings.m_log2Interp)); // TODO
     m_channelMarker.setMovable(false); // do not let user move the center arbitrarily
     m_channelMarker.blockSignals(false);
     m_channelMarker.setColor(m_settings.m_rgbColor); // activate signal on the last setting only
 
     setTitleColor(m_settings.m_rgbColor);
     setWindowTitle(m_channelMarker.getTitle());
+    displayStreamIndex();
 
     blockApplySettings(true);
     ui->interpolationFactor->setCurrentIndex(m_settings.m_log2Interp);
+    ui->localDevicePlay->setChecked(m_settings.m_play);
     applyInterpolation();
     blockApplySettings(false);
 }
 
 void LocalSourceGUI::displayRateAndShift()
 {
-    int shift = m_shiftFrequencyFactor * m_sampleRate;
-    double channelSampleRate = ((double) m_sampleRate) / (1<<m_settings.m_log2Interp);
+    int shift = m_shiftFrequencyFactor * m_basebandSampleRate;
+    double channelSampleRate = ((double) m_basebandSampleRate) / (1<<m_settings.m_log2Interp);
     QLocale loc;
     ui->offsetFrequencyText->setText(tr("%1 Hz").arg(loc.toString(shift)));
     ui->channelRateText->setText(tr("%1k").arg(QString::number(channelSampleRate / 1000.0, 'g', 5)));
     m_channelMarker.setCenterFrequency(shift);
     m_channelMarker.setBandwidth(channelSampleRate);
+}
+
+void LocalSourceGUI::displayStreamIndex()
+{
+    if (m_deviceUISet->m_deviceMIMOEngine) {
+        setStreamIndicator(tr("%1").arg(m_settings.m_streamIndex));
+    } else {
+        setStreamIndicator("S"); // single channel indicator
+    }
 }
 
 void LocalSourceGUI::updateLocalDevices()
@@ -276,6 +277,20 @@ void LocalSourceGUI::onMenuDialogCalled(const QPoint &p)
 
         applySettings();
     }
+    else if ((m_contextMenuType == ContextMenuStreamSettings) && (m_deviceUISet->m_deviceMIMOEngine))
+    {
+        DeviceStreamSelectionDialog dialog(this);
+        dialog.setNumberOfStreams(m_localSource->getNumberOfDeviceStreams());
+        dialog.setStreamIndex(m_settings.m_streamIndex);
+        dialog.move(p);
+        dialog.exec();
+
+        m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+        m_channelMarker.clearStreamIndexes();
+        m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+        displayStreamIndex();
+        applySettings();
+    }
 
     resetContextMenuType();
 }
@@ -304,6 +319,12 @@ void LocalSourceGUI::on_localDevicesRefresh_clicked(bool checked)
     updateLocalDevices();
 }
 
+void LocalSourceGUI::on_localDevicePlay_toggled(bool checked)
+{
+    m_settings.m_play = checked;
+    applySettings();
+}
+
 void LocalSourceGUI::applyInterpolation()
 {
     uint32_t maxHash = 1;
@@ -326,7 +347,7 @@ void LocalSourceGUI::applyPosition()
     ui->filterChainText->setText(s);
 
     displayRateAndShift();
-    applyChannelSettings();
+    applySettings();
 }
 
 void LocalSourceGUI::tick()

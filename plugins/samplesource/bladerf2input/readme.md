@@ -8,7 +8,12 @@ This input sample source plugin gets its samples from a [BladeRF 2.0 micro devic
 
 The plugin will be built only if the [BladeRF host library](https://github.com/Nuand/bladeRF) is installed in your system. If you build it from source and install it in a custom location say: `/opt/install/libbladeRF` you will have to add `-DBLADERF_INCLUDE_DIR=/opt/install/libbladeRF` to the cmake command line.
 
-Note that libbladeRF v2 with git tag 2018.08 should be used (official release). The FPGA image v0.7.3 should be used accordingly. The FPGA .rbf file should be copied to the folder where the `sdrangel` binary resides. You can download FPGA images from [here](https://www.nuand.com/fpga_images/)
+Note that libbladeRF v2 with git tag 2018.10-rc1 should be used (official release) thus:
+
+  - The FX3 firmware version should be v2.3.1
+  - The FPGA image version should be v0.9.0
+
+The FPGA .rbf file should be copied to the folder where the `sdrangel` binary resides. You can download FPGA images from [here](https://www.nuand.com/fpga_images/)
 
 The BladeRF Host library is also provided by many Linux distributions (check its version) and is built in the SDRangel binary releases.
 
@@ -133,9 +138,9 @@ This selects the gain processing in use. Values are fetched automatically from t
 
 <h3>10: Manual gain control</h3>
 
-Use this slider to adjust gain in manual mode. This control is disabled in non manual modes (all modes but manual). The minumum, maximum and step values are fetched automatically from the device and may vary depending on the center frequency. For frequencies around 400 MHz the gain varies from -16 to 60 dB in 1 dB steps.
+Use this slider to adjust gain in manual mode. This control is disabled in non manual modes (all modes but manual). The minimum, maximum and step values are fetched automatically from the device and may vary depending on the center frequency. For frequencies around 400 MHz the gain varies from -16 to 60 dB in 1 dB steps.
 
 <h3>11: Bias tee control</h3>
 
-Use this toggle button to activate or de-activate the bias tee. Note that according to BladeRF v2 specs the bias tee is simultanously present on all Rx RF ports. The GUI of the sibling channel if present is adjusted automatically.
+Use this toggle button to activate or de-activate the bias tee. Note that according to BladeRF v2 specs the bias tee is simultaneously present on all Rx RF ports. The GUI of the sibling channel if present is adjusted automatically.
 

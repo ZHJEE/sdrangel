@@ -45,7 +45,7 @@ namespace qtwebapp {
     class LoggerWithFile;
 }
 
-class MainCore : public QObject {
+class SDRSRV_API MainCore : public QObject {
     Q_OBJECT
 
 public:
@@ -57,12 +57,14 @@ public:
 
     const QTimer& getMasterTimer() const { return m_masterTimer; }
     const MainSettings& getMainSettings() const { return m_settings; }
+    const PluginManager *getPluginManager() const { return m_pluginManager; }
 
     void addSourceDevice();
     void addSinkDevice();
     void removeLastDevice();
     void changeSampleSource(int deviceSetIndex, int selectedDeviceIndex);
     void changeSampleSink(int deviceSetIndex, int selectedDeviceIndex);
+    void changeSampleMIMO(int deviceSetIndex, int selectedDeviceIndex);
     void addChannel(int deviceSetIndex, int selectedChannelIndex);
     void deleteChannel(int deviceSetIndex, int channelIndex);
 
@@ -197,23 +199,23 @@ private:
     public:
         int getDeviceSetIndex() const { return m_deviceSetIndex; }
         int getDeviceIndex() const { return m_deviceIndex; }
-        bool isTx() const { return m_tx; }
+        int getDeviceType() const { return m_deviceType; }
 
-        static MsgSetDevice* create(int deviceSetIndex, int deviceIndex, bool tx)
+        static MsgSetDevice* create(int deviceSetIndex, int deviceIndex, int deviceType)
         {
-            return new MsgSetDevice(deviceSetIndex, deviceIndex, tx);
+            return new MsgSetDevice(deviceSetIndex, deviceIndex, deviceType);
         }
 
     private:
         int m_deviceSetIndex;
         int m_deviceIndex;
-        bool m_tx;
+        int m_deviceType;
 
-        MsgSetDevice(int deviceSetIndex, int deviceIndex, bool tx) :
+        MsgSetDevice(int deviceSetIndex, int deviceIndex, int deviceType) :
             Message(),
             m_deviceSetIndex(deviceSetIndex),
             m_deviceIndex(deviceIndex),
-            m_tx(tx)
+            m_deviceType(deviceType)
         { }
     };
 
@@ -249,23 +251,34 @@ private:
     public:
         int getDeviceSetIndex() const { return m_deviceSetIndex; }
         int getChannelIndex() const { return m_channelIndex; }
-        bool isTx() const { return m_tx; }
 
-        static MsgDeleteChannel* create(int deviceSetIndex, int channelIndex, bool tx)
+        static MsgDeleteChannel* create(int deviceSetIndex, int channelIndex)
         {
-            return new MsgDeleteChannel(deviceSetIndex, channelIndex, tx);
+            return new MsgDeleteChannel(deviceSetIndex, channelIndex);
         }
 
     private:
         int m_deviceSetIndex;
         int m_channelIndex;
-        bool m_tx;
 
-        MsgDeleteChannel(int deviceSetIndex, int channelIndex, bool tx) :
+        MsgDeleteChannel(int deviceSetIndex, int channelIndex) :
             Message(),
             m_deviceSetIndex(deviceSetIndex),
-            m_channelIndex(channelIndex),
-            m_tx(tx)
+            m_channelIndex(channelIndex)
+        { }
+    };
+
+    class MsgApplySettings : public Message {
+        MESSAGE_CLASS_DECLARATION
+
+    public:
+        static MsgApplySettings* create() {
+            return new MsgApplySettings();
+        }
+
+    private:
+        MsgApplySettings() :
+            Message()
         { }
     };
 
@@ -286,6 +299,7 @@ private:
     WebAPIAdapterSrv *m_apiAdapter;
 
 	void loadSettings();
+    void applySettings();
 	void loadPresetSettings(const Preset* preset, int tabIndex);
 	void savePresetSettings(Preset* preset, int tabIndex);
     void setLoggingOptions();

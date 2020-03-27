@@ -3,8 +3,12 @@
 
 #include "settings/mainsettings.h"
 #include "commands/command.h"
+#include "audio/audiodevicemanager.h"
+#include "ambe/ambeengine.h"
 
-MainSettings::MainSettings() : m_audioDeviceManager(0)
+MainSettings::MainSettings() :
+    m_audioDeviceManager(nullptr),
+    m_ambeEngine(nullptr)
 {
 	resetToDefaults();
     qInfo("MainSettings::MainSettings: settings file: format: %d location: %s", getFileFormat(), qPrintable(getFileLocation()));
@@ -42,10 +46,13 @@ void MainSettings::load()
 	m_preferences.deserialize(qUncompress(QByteArray::fromBase64(s.value("preferences").toByteArray())));
 	m_workingPreset.deserialize(qUncompress(QByteArray::fromBase64(s.value("current").toByteArray())));
 
-	if (m_audioDeviceManager)
-	{
+	if (m_audioDeviceManager) {
 	    m_audioDeviceManager->deserialize(qUncompress(QByteArray::fromBase64(s.value("audio").toByteArray())));
 	}
+
+    if (m_ambeEngine) {
+        m_ambeEngine->deserialize(qUncompress(QByteArray::fromBase64(s.value("ambe").toByteArray())));
+    }
 
 	QStringList groups = s.childGroups();
 
@@ -84,6 +91,9 @@ void MainSettings::load()
             s.endGroup();
         }
 	}
+
+    m_hardwareDeviceUserArgs.deserialize(qUncompress(QByteArray::fromBase64(s.value("hwDeviceUserArgs").toByteArray())));
+    m_limeRFEUSBCalib.deserialize(qUncompress(QByteArray::fromBase64(s.value("limeRFEUSBCalib").toByteArray())));
 }
 
 void MainSettings::save() const
@@ -93,10 +103,13 @@ void MainSettings::save() const
 	s.setValue("preferences", qCompress(m_preferences.serialize()).toBase64());
 	s.setValue("current", qCompress(m_workingPreset.serialize()).toBase64());
 
-	if (m_audioDeviceManager)
-	{
+	if (m_audioDeviceManager) {
 	    s.setValue("audio", qCompress(m_audioDeviceManager->serialize()).toBase64());
 	}
+
+    if (m_ambeEngine) {
+        s.setValue("ambe", qCompress(m_ambeEngine->serialize()).toBase64());
+    }
 
 	QStringList groups = s.childGroups();
 
@@ -123,6 +136,16 @@ void MainSettings::save() const
         s.setValue("data", qCompress(m_commands[i]->serialize()).toBase64());
         s.endGroup();
     }
+
+    s.setValue("hwDeviceUserArgs", qCompress(m_hardwareDeviceUserArgs.serialize()).toBase64());
+    s.setValue("limeRFEUSBCalib", qCompress(m_limeRFEUSBCalib.serialize()).toBase64());
+}
+
+void MainSettings::initialize()
+{
+    resetToDefaults();
+    clearCommands();
+    clearPresets();
 }
 
 void MainSettings::resetToDefaults()
@@ -136,8 +159,13 @@ Preset* MainSettings::newPreset(const QString& group, const QString& description
 	Preset* preset = new Preset();
 	preset->setGroup(group);
 	preset->setDescription(description);
-	m_presets.append(preset);
+	addPreset(preset);
 	return preset;
+}
+
+void MainSettings::addPreset(Preset *preset)
+{
+    m_presets.append(preset);
 }
 
 void MainSettings::deletePreset(const Preset* preset)
@@ -191,13 +219,24 @@ const Preset* MainSettings::getPreset(const QString& groupName, quint64 centerFr
         {
             if (type == "R" && getPreset(i)->isSourcePreset()) {
                 return getPreset(i);
-            } else if (type == "T" && !getPreset(i)->isSourcePreset()) {
+            } else if (type == "T" && getPreset(i)->isSinkPreset()) {
+                return getPreset(i);
+            } else if (type == "M" && getPreset(i)->isMIMOPreset()) {
                 return getPreset(i);
             }
         }
     }
 
     return 0;
+}
+
+void MainSettings::clearPresets()
+{
+    foreach (Preset *preset, m_presets) {
+        delete preset;
+    }
+
+    m_presets.clear();
 }
 
 void MainSettings::addCommand(Command *command)
@@ -258,4 +297,13 @@ const Command* MainSettings::getCommand(const QString& groupName, const QString&
     }
 
     return 0;
+}
+
+void MainSettings::clearCommands()
+{
+    foreach (Command *command, m_commands) {
+        delete command;
+    }
+
+    m_commands.clear();
 }

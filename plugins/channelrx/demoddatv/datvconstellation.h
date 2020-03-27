@@ -29,7 +29,7 @@ namespace leansdr {
 
 static const int DEFAULT_GUI_DECIMATION = 64;
 
-static inline cstln_lut<eucl_ss, 256> * make_dvbs2_constellation(cstln_lut<eucl_ss, 256>::predef c,
+static inline cstln_lut<eucl_ss, 256> * make_dvbs_constellation(cstln_lut<eucl_ss, 256>::predef c,
         code_rate r)
 {
     float gamma1 = 1, gamma2 = 1, gamma3 = 1;
@@ -59,7 +59,7 @@ static inline cstln_lut<eucl_ss, 256> * make_dvbs2_constellation(cstln_lut<eucl_
             gamma1 = 2.57;
             break;
         default:
-            fail("cstln_lut<256>::make_dvbs2_constellation: Code rate not supported with APSK16");
+            fail("cstln_lut<256>::make_dvbs_constellation: Code rate not supported with APSK16");
             return 0;
         }
         break;
@@ -88,7 +88,7 @@ static inline cstln_lut<eucl_ss, 256> * make_dvbs2_constellation(cstln_lut<eucl_
             gamma2 = 4.30;
             break;
         default:
-            fail("cstln_lut<eucl_ss, 256>::make_dvbs2_constellation: Code rate not supported with APSK32");
+            fail("cstln_lut<eucl_ss, 256>::make_dvbs_constellation: Code rate not supported with APSK32");
             return 0;
         }
         break;
@@ -101,7 +101,11 @@ static inline cstln_lut<eucl_ss, 256> * make_dvbs2_constellation(cstln_lut<eucl_
     default:
         break;
     }
-    return new cstln_lut<eucl_ss, 256>(c, gamma1, gamma2, gamma3);
+    cstln_lut<eucl_ss, 256> *newCstln =  new cstln_lut<eucl_ss, 256>(c, 10, gamma1, gamma2, gamma3);
+    newCstln->m_rateCode = (int) r;
+    newCstln->m_typeCode = (int) c;
+    newCstln->m_setByModcod = false;
+    return newCstln;
 }
 
 template<typename T> struct datvconstellation: runnable

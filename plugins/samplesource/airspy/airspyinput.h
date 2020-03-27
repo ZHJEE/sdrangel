@@ -140,6 +140,20 @@ public:
             SWGSDRangel::SWGDeviceReport& response,
             QString& errorMessage);
 
+    virtual int webapiActionsPost(
+            const QStringList& deviceActionsKeys,
+            SWGSDRangel::SWGDeviceActions& actions,
+            QString& errorMessage);
+
+    static void webapiFormatDeviceSettings(
+        SWGSDRangel::SWGDeviceSettings& response,
+        const AirspySettings& settings);
+
+    static void webapiUpdateDeviceSettings(
+            AirspySettings& settings,
+            const QStringList& deviceSettingsKeys,
+            SWGSDRangel::SWGDeviceSettings& response);
+
     static const qint64 loLowLimitFreq;
 	static const qint64 loHighLimitFreq;
 
@@ -161,7 +175,6 @@ private:
 	bool applySettings(const AirspySettings& settings, bool force);
 	struct airspy_device *open_airspy_from_sequence(int sequence);
 	void setDeviceCenterFrequency(quint64 freq);
-    void webapiFormatDeviceSettings(SWGSDRangel::SWGDeviceSettings& response, const AirspySettings& settings);
     void webapiFormatDeviceReport(SWGSDRangel::SWGDeviceReport& response);
     void webapiReverseSendSettings(QList<QString>& deviceSettingsKeys, const AirspySettings& settings, bool force);
     void webapiReverseSendStartStop(bool start);

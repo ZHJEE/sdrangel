@@ -1,6 +1,8 @@
 #include "dsp/spectrumvis.h"
 #include "gui/glspectrum.h"
 #include "dsp/dspcommands.h"
+#include "dsp/dspengine.h"
+#include "dsp/fftfactory.h"
 #include "util/messagequeue.h"
 
 #define MAX_FFT_SIZE 4096
@@ -13,12 +15,14 @@ inline double log2f(double n)
 #endif
 
 MESSAGE_CLASS_DEFINITION(SpectrumVis::MsgConfigureSpectrumVis, Message)
+MESSAGE_CLASS_DEFINITION(SpectrumVis::MsgConfigureScalingFactor, Message)
 
 const Real SpectrumVis::m_mult = (10.0f / log2f(10.0f));
 
 SpectrumVis::SpectrumVis(Real scalef, GLSpectrum* glSpectrum) :
 	BasebandSampleSink(),
-	m_fft(FFTEngine::create()),
+	m_fft(nullptr),
+    m_fftEngineSequence(0),
 	m_fftBuffer(MAX_FFT_SIZE),
 	m_powerSpectrum(MAX_FFT_SIZE),
 	m_fftBufferFill(0),
@@ -38,19 +42,26 @@ SpectrumVis::SpectrumVis(Real scalef, GLSpectrum* glSpectrum) :
 
 SpectrumVis::~SpectrumVis()
 {
-	delete m_fft;
+    FFTFactory *fftFactory = DSPEngine::instance()->getFFTFactory();
+    fftFactory->releaseEngine(m_fftSize, false, m_fftEngineSequence);
 }
 
 void SpectrumVis::configure(MessageQueue* msgQueue,
         int fftSize,
         int overlapPercent,
         unsigned int averagingNb,
-        int averagingMode,
+        AvgMode averagingMode,
         FFTWindow::Function window,
         bool linear)
 {
 	MsgConfigureSpectrumVis* cmd = new MsgConfigureSpectrumVis(fftSize, overlapPercent, averagingNb, averagingMode, window, linear);
 	msgQueue->push(cmd);
+}
+
+void SpectrumVis::setScalef(MessageQueue* msgQueue, Real scalef)
+{
+    MsgConfigureScalingFactor* cmd = new MsgConfigureScalingFactor(scalef);
+    getInputMessageQueue()->push(cmd);
 }
 
 void SpectrumVis::feedTriggered(const SampleVector::const_iterator& triggerPoint, const SampleVector::const_iterator& end, bool positiveOnly)
@@ -322,6 +333,12 @@ bool SpectrumVis::handleMessage(const Message& message)
 		        conf.getLinear());
 		return true;
 	}
+    else if (MsgConfigureScalingFactor::match(message))
+    {
+        MsgConfigureScalingFactor& conf = (MsgConfigureScalingFactor&) message;
+        handleScalef(conf.getScalef());
+        return true;
+    }
 	else
 	{
 		return false;
@@ -361,8 +378,10 @@ void SpectrumVis::handleConfigure(int fftSize,
         m_overlapPercent = overlapPercent;
 	}
 
+    FFTFactory *fftFactory = DSPEngine::instance()->getFFTFactory();
+    fftFactory->releaseEngine(m_fftSize, false, m_fftEngineSequence);
+    m_fftEngineSequence = fftFactory->getEngine(fftSize, false, &m_fft);
 	m_fftSize = fftSize;
-	m_fft->configure(m_fftSize, false);
 	m_window.create(window, m_fftSize);
 	m_overlapSize = (m_fftSize * m_overlapPercent) / 100;
 	m_refillSize = m_fftSize - m_overlapSize;
@@ -375,4 +394,10 @@ void SpectrumVis::handleConfigure(int fftSize,
 	m_linear = linear;
 	m_ofs = 20.0f * log10f(1.0f / m_fftSize);
 	m_powFFTDiv = m_fftSize*m_fftSize;
+}
+
+void SpectrumVis::handleScalef(Real scalef)
+{
+    QMutexLocker mutexLocker(&m_mutex);
+    m_scalef = scalef;
 }

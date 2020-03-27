@@ -131,6 +131,11 @@ public:
             SWGSDRangel::SWGDeviceReport& response,
             QString& errorMessage);
 
+    virtual int webapiActionsPost(
+            const QStringList& deviceActionsKeys,
+            SWGSDRangel::SWGDeviceActions& actions,
+            QString& errorMessage);
+
     virtual int webapiRunGet(
             SWGSDRangel::SWGDeviceState& response,
             QString& errorMessage);
@@ -139,6 +144,15 @@ public:
             bool run,
             SWGSDRangel::SWGDeviceState& response,
             QString& errorMessage);
+
+	static void webapiFormatDeviceSettings(
+            SWGSDRangel::SWGDeviceSettings& response,
+            const RTLSDRSettings& settings);
+
+    static void webapiUpdateDeviceSettings(
+            RTLSDRSettings& settings,
+            const QStringList& deviceSettingsKeys,
+            SWGSDRangel::SWGDeviceSettings& response);
 
 	const std::vector<int>& getGains() const { return m_gains; }
 	void set_ds_mode(int on);
@@ -168,7 +182,6 @@ private:
 	bool openDevice();
 	void closeDevice();
 	bool applySettings(const RTLSDRSettings& settings, bool force);
-	void webapiFormatDeviceSettings(SWGSDRangel::SWGDeviceSettings& response, const RTLSDRSettings& settings);
     void webapiFormatDeviceReport(SWGSDRangel::SWGDeviceReport& response);
     void webapiReverseSendSettings(QList<QString>& deviceSettingsKeys, const RTLSDRSettings& settings, bool force);
     void webapiReverseSendStartStop(bool start);

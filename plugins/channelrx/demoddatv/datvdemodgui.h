@@ -33,7 +33,6 @@
 class PluginAPI;
 class DeviceUISet;
 class BasebandSampleSink;
-class DownChannelizer;
 
 namespace Ui
 {
@@ -58,7 +57,6 @@ public:
     bool deserialize(const QByteArray& arrData);
 
     virtual MessageQueue *getInputMessageQueue() { return &m_inputMessageQueue; }
-
     virtual bool handleMessage(const Message& objMessage);
 
     static const QString m_strChannelID;
@@ -69,10 +67,11 @@ private slots:
 
     void onWidgetRolled(QWidget* widget, bool rollDown);
     void onMenuDoubleClicked();
+    void handleInputMessages();
     void audioSelect();
     void tick();
 
-    void on_cmbStandard_currentIndexChanged(const QString &arg1);
+    void on_cmbStandard_currentIndexChanged(int index);
     void on_cmbModulation_currentIndexChanged(const QString &arg1);
     void on_cmbFEC_currentIndexChanged(const QString &arg1);
     void on_chkViterbi_clicked();
@@ -85,7 +84,6 @@ private slots:
     void on_mouseEvent(QMouseEvent* obj);
     void on_StreamDataAvailable(int *intPackets, int *intBytes, int *intPercent, qint64 *intTotalReceived);
     void on_StreamMetaDataChanged(DataTSMetaData2 *objMetaData);
-    void on_spiBandwidth_valueChanged(int arg1);
     void on_chkFastlock_clicked();
     void on_cmbFilter_currentIndexChanged(int index);
     void on_spiRollOff_valueChanged(int arg1);
@@ -95,6 +93,9 @@ private slots:
     void on_audioMute_toggled(bool checked);
     void on_audioVolume_valueChanged(int value);
     void on_videoMute_toggled(bool checked);
+    void on_udpTS_clicked(bool checked);
+    void on_udpTSAddress_editingFinished();
+    void on_udpTSPort_editingFinished();
 
 private:
     Ui::DATVDemodGUI* ui;
@@ -102,8 +103,6 @@ private:
     DeviceUISet* m_deviceUISet;
 
     ChannelMarker m_objChannelMarker;
-    ThreadedBasebandSampleSink* m_objThreadedChannelizer;
-    DownChannelizer* m_objChannelizer;
     DATVDemod* m_objDATVDemod;
     MessageQueue m_inputMessageQueue;
     int m_intCenterFrequency;
@@ -118,6 +117,9 @@ private:
     bool m_blnBasicSettingsShown;
     bool m_blnDoApplySettings;
     bool m_blnButtonPlayClicked;
+    int m_modcodModulationIndex;
+    int m_modcodCodeRateIndex;
+    bool m_cstlnSetByModcod;
 
     MovingAverageUtil<double, double, 4> m_objMagSqAverage;
 
@@ -127,6 +129,7 @@ private:
     void blockApplySettings(bool blnBlock);
 	void applySettings(bool force = false);
     void displaySettings();
+    void displaySystemConfiguration();
     QString formatBytes(qint64 intBytes);
 
     void displayRRCParameters(bool blnVisible);

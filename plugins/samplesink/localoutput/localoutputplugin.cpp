@@ -26,10 +26,12 @@
 #include "localoutputgui.h"
 #endif
 #include "localoutputplugin.h"
+#include "localoutputwebapiadapter.h"
 
 const PluginDescriptor LocalOutputPlugin::m_pluginDescriptor = {
+    QString("LocalOutput"),
 	QString("Local device output"),
-	QString("4.8.0"),
+	QString("4.12.3"),
 	QString("(c) Edouard Griffiths, F4EXB"),
 	QString("https://github.com/f4exb/sdrangel"),
 	true,
@@ -54,30 +56,58 @@ void LocalOutputPlugin::initPlugin(PluginAPI* pluginAPI)
 	pluginAPI->registerSampleSink(m_deviceTypeID, this);
 }
 
-PluginInterface::SamplingDevices LocalOutputPlugin::enumSampleSinks()
+void LocalOutputPlugin::enumOriginDevices(QStringList& listedHwIds, OriginDevices& originDevices)
+{
+    if (listedHwIds.contains(m_hardwareID)) { // check if it was done
+        return;
+    }
+
+    originDevices.append(OriginDevice(
+        "LocalOutput",
+        m_hardwareID,
+        QString(),
+        0, // Sequence
+        0, // nb Rx
+        1  // nb Tx
+    ));
+
+    listedHwIds.append(m_hardwareID);
+}
+
+PluginInterface::SamplingDevices LocalOutputPlugin::enumSampleSinks(const OriginDevices& originDevices)
 {
 	SamplingDevices result;
 
-    result.append(SamplingDevice(
-            "LocalOutput",
-            m_hardwareID,
-            m_deviceTypeID,
-            QString::null,
-            0,
-            PluginInterface::SamplingDevice::BuiltInDevice,
-            PluginInterface::SamplingDevice::StreamSingleTx,
-            1,
-            0));
+    for (OriginDevices::const_iterator it = originDevices.begin(); it != originDevices.end(); ++it)
+    {
+        if (it->hardwareId == m_hardwareID)
+        {
+            result.append(SamplingDevice(
+                it->displayableName,
+                it->hardwareId,
+                m_deviceTypeID,
+                it->serial,
+                it->sequence,
+                PluginInterface::SamplingDevice::BuiltInDevice,
+                PluginInterface::SamplingDevice::StreamSingleTx,
+                1,
+                0
+            ));
+        }
+    }
 
 	return result;
 }
 
 #ifdef SERVER_MODE
 PluginInstanceGUI* LocalOutputPlugin::createSampleSinkPluginInstanceGUI(
-        const QString& sinkId __attribute((unused)),
-        QWidget **widget __attribute((unused)),
-        DeviceUISet *deviceUISet __attribute((unused)))
+        const QString& sinkId,
+        QWidget **widget,
+        DeviceUISet *deviceUISet)
 {
+    (void) sinkId;
+    (void) widget;
+    (void) deviceUISet;
     return 0;
 }
 #else
@@ -99,7 +129,7 @@ PluginInstanceGUI* LocalOutputPlugin::createSampleSinkPluginInstanceGUI(
 }
 #endif
 
-DeviceSampleSink *LocalOutputPlugin::createSampleSinkPluginInstanceOutput(const QString& sinkId, DeviceAPI *deviceAPI)
+DeviceSampleSink *LocalOutputPlugin::createSampleSinkPluginInstance(const QString& sinkId, DeviceAPI *deviceAPI)
 {
     if (sinkId == m_deviceTypeID)
     {
@@ -110,4 +140,9 @@ DeviceSampleSink *LocalOutputPlugin::createSampleSinkPluginInstanceOutput(const 
     {
         return 0;
     }
+}
+
+DeviceWebAPIAdapter *LocalOutputPlugin::createDeviceWebAPIAdapter() const
+{
+    return new LocalOutputWebAPIAdapter();
 }

@@ -20,9 +20,10 @@
 
 #include <QTimer>
 
-class DSPDeviceSourceEngine;
 class DeviceAPI;
+class DSPDeviceSourceEngine;
 class DSPDeviceSinkEngine;
+class DSPDeviceMIMOEngine;
 class PluginAPI;
 class ChannelAPI;
 class Preset;
@@ -30,41 +31,42 @@ class Preset;
 class DeviceSet
 {
 public:
-    DSPDeviceSourceEngine *m_deviceSourceEngine;
     DeviceAPI *m_deviceAPI;
+    DSPDeviceSourceEngine *m_deviceSourceEngine;
     DSPDeviceSinkEngine *m_deviceSinkEngine;
+    DSPDeviceMIMOEngine *m_deviceMIMOEngine;
 
     DeviceSet(int tabIndex);
     ~DeviceSet();
 
-    int getNumberOfRxChannels() const { return m_rxChannelInstanceRegistrations.size(); }
-    int getNumberOfTxChannels() const { return m_txChannelInstanceRegistrations.size(); }
+    int getNumberOfChannels() const { return m_channelInstanceRegistrations.size(); }
     void addRxChannel(int selectedChannelIndex, PluginAPI *pluginAPI);
     void addTxChannel(int selectedChannelIndex, PluginAPI *pluginAPI);
-    void deleteRxChannel(int channelIndex);
-    void deleteTxChannel(int channelIndex);
+    void addMIMOChannel(int selectedChannelIndex, PluginAPI *pluginAPI);
+    void deleteChannel(int channelIndex);
     void registerRxChannelInstance(const QString& channelName, ChannelAPI* channelAPI);
     void registerTxChannelInstance(const QString& channelName, ChannelAPI* channelAPI);
+    void registerChannelInstance(const QString& channelName, ChannelAPI* channelAPI);
     void removeRxChannelInstance(ChannelAPI* channelAPI);
     void removeTxChannelInstance(ChannelAPI* channelAPI);
-    void freeRxChannels();
-    void freeTxChannels();
+    void removeChannelInstance(ChannelAPI* channelAPI);
+    void freeChannels();
     void loadRxChannelSettings(const Preset* preset, PluginAPI *pluginAPI);
     void saveRxChannelSettings(Preset* preset);
     void loadTxChannelSettings(const Preset* preset, PluginAPI *pluginAPI);
     void saveTxChannelSettings(Preset* preset);
+    void loadMIMOChannelSettings(const Preset* preset, PluginAPI *pluginAPI);
+    void saveMIMOChannelSettings(Preset* preset);
 
 private:
     struct ChannelInstanceRegistration
     {
         QString m_channelName;
-        ChannelAPI *m_channelSinkAPI;
-        ChannelAPI *m_channelSourceAPI;
+        ChannelAPI *m_channelAPI;
 
         ChannelInstanceRegistration() :
             m_channelName(),
-            m_channelSinkAPI(nullptr),
-            m_channelSourceAPI(nullptr)
+            m_channelAPI(nullptr)
         { }
 
         ChannelInstanceRegistration(const QString& channelName, ChannelAPI* channelAPI);
@@ -74,14 +76,10 @@ private:
 
     typedef QList<ChannelInstanceRegistration> ChannelInstanceRegistrations;
 
-    ChannelInstanceRegistrations m_rxChannelInstanceRegistrations;
-    ChannelInstanceRegistrations m_txChannelInstanceRegistrations;
+    ChannelInstanceRegistrations m_channelInstanceRegistrations;
     int m_deviceTabIndex;
 
-    void renameRxChannelInstances();
-    void renameTxChannelInstances();
-    /** Use this function to support possible older identifiers in presets */
-    bool compareRxChannelURIs(const QString& registerdChannelURI, const QString& xChannelURI);
+    void renameChannelInstances();
 };
 
 #endif /* SDRSRV_DEVICE_DEVICESET_H_ */

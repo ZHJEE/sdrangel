@@ -88,13 +88,13 @@ struct bch_engine : bch_interface
         bool corrupted = false;
         // Divide by individual polynomials.
         // TBD Maybe do in parallel, scanning cw only once.
-        bitvect<T, DP> rem[npolys];
+        bitvect<T, DP> *rem = new bitvect<T, DP>[npolys]; // npolys is not static hence 'bitvect<T, DP> rem[npolys]' does not compile in all compilers
         for (int j = 0; j < npolys; ++j)
         {
             rem[j] = divmod(cw, cwbytes, truncpolys[j]);
         }
         // Compute syndromes.
-        TGF S[2 * npolys];
+        TGF *S = new TGF[2 * npolys]; // npolys is not static hence 'TGF S[2 * npolys]' does not compile in all compilers
         for (int i = 0; i < 2 * npolys; ++i)
         {
             // Compute R(alpha^(1+i)), exploiting the fact that
@@ -106,7 +106,11 @@ struct bch_engine : bch_interface
                 corrupted = true;
         }
         if (!corrupted)
+        {
+            delete[] S;
+            delete[] rem;
             return 0;
+        }
 #if 0
       fprintf(stderr, "synd:");
       for ( int i=0; i<2*npolys; ++i ) fprintf(stderr, " %04x", S[i]);
@@ -122,12 +126,16 @@ struct bch_engine : bch_interface
         // TBD More efficient to work with logs of syndromes ?
 
         int NN = 2 * npolys;
-        TGF C[NN] = {
-            1,
-        },
-            B[NN] = {
-                1,
-            };
+        TGF *C = new TGF[NN];
+        C[0] = 1;
+        TGF *B = new TGF[NN];
+        B[0] = 1;
+        // TGF C[NN] = { crap code
+        //     1,
+        // },
+        //     B[NN] = {
+        //         1,
+        //     };
         int L = 0, m = 1;
         TGF b = 1;
         for (int n = 0; n < NN; ++n)
@@ -142,7 +150,7 @@ struct bch_engine : bch_interface
                 TGF d_div_b = GF.mul(d, GF.inv(b));
                 if (2 * L <= n)
                 {
-                    TGF tmp[NN];
+                    TGF *tmp = new TGF[NN]; // replaced crap code
                     memcpy(tmp, C, sizeof(tmp));
                     for (int i = 0; i < NN - m; ++i)
                         C[m + i] = GF.sub(C[m + i], GF.mul(d_div_b, B[i]));
@@ -150,6 +158,7 @@ struct bch_engine : bch_interface
                     memcpy(B, tmp, sizeof(B));
                     b = d;
                     m = 1;
+                    delete[] tmp;
                 }
                 else
                 {
@@ -188,6 +197,10 @@ struct bch_engine : bch_interface
                 if (rloc < 0)
                 {
                     // This may happen if the code is used truncated.
+                    delete[] C;
+                    delete[] B;
+                    delete[] S;
+                    delete[] rem;
                     return -1;
                 }
                 cw[rloc / 8] ^= 128 >> (rloc & 7);
@@ -196,6 +209,12 @@ struct bch_engine : bch_interface
                     break;
             }
         }
+
+        delete[] C;
+        delete[] B;
+        delete[] S;
+        delete[] rem;
+
         if (roots_found != L)
             return -1;
         return L;

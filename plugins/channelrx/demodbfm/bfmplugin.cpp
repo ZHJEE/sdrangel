@@ -25,10 +25,13 @@
 #include "bfmdemodgui.h"
 #endif
 #include "bfmdemod.h"
+#include "bfmdemodwebapiadapter.h"
+#include "bfmplugin.h"
 
 const PluginDescriptor BFMPlugin::m_pluginDescriptor = {
+    BFMDemod::m_channelId,
 	QString("Broadcast FM Demodulator"),
-	QString("4.5.2"),
+	QString("4.12.3"),
 	QString("(c) Edouard Griffiths, F4EXB"),
 	QString("https://github.com/f4exb/sdrangel"),
 	true,
@@ -56,25 +59,29 @@ void BFMPlugin::initPlugin(PluginAPI* pluginAPI)
 
 #ifdef SERVER_MODE
 PluginInstanceGUI* BFMPlugin::createRxChannelGUI(
-        DeviceUISet *deviceUISet __attribute__((unused)),
-        BasebandSampleSink *rxChannel __attribute__((unused)))
+        DeviceUISet *deviceUISet,
+        BasebandSampleSink *rxChannel) const
 {
     return 0;
 }
 #else
-PluginInstanceGUI* BFMPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel)
+PluginInstanceGUI* BFMPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel) const
 {
 	return BFMDemodGUI::create(m_pluginAPI, deviceUISet, rxChannel);
 }
 #endif
 
-BasebandSampleSink* BFMPlugin::createRxChannelBS(DeviceAPI *deviceAPI)
+BasebandSampleSink* BFMPlugin::createRxChannelBS(DeviceAPI *deviceAPI) const
 {
     return new BFMDemod(deviceAPI);
 }
 
-ChannelAPI* BFMPlugin::createRxChannelCS(DeviceAPI *deviceAPI)
+ChannelAPI* BFMPlugin::createRxChannelCS(DeviceAPI *deviceAPI) const
 {
     return new BFMDemod(deviceAPI);
 }
 
+ChannelWebAPIAdapter* BFMPlugin::createChannelWebAPIAdapter() const
+{
+	return new BFMDemodWebAPIAdapter();
+}

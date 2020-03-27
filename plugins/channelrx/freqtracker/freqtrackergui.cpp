@@ -22,20 +22,21 @@
 #include "freqtrackergui.h"
 
 #include "device/deviceuiset.h"
-#include "dsp/downchannelizer.h"
 #include "dsp/dspengine.h"
-#include "dsp/threadedbasebandsamplesink.h"
+#include "dsp/dspcommands.h"
 #include "ui_freqtrackergui.h"
 #include "plugin/pluginapi.h"
 #include "util/simpleserializer.h"
 #include "util/db.h"
 #include "gui/basicchannelsettingsdialog.h"
+#include "gui/devicestreamselectiondialog.h"
 #include "dsp/dspengine.h"
 #include "mainwindow.h"
 #include "gui/crightclickenabler.h"
 #include "gui/audioselectdialog.h"
 
 #include "freqtracker.h"
+#include "freqtrackerreport.h"
 
 FreqTrackerGUI* FreqTrackerGUI::create(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel)
 {
@@ -104,23 +105,28 @@ bool FreqTrackerGUI::handleMessage(const Message& message)
         blockApplySettings(false);
         return true;
     }
-    else if (FreqTracker::MsgSampleRateNotification::match(message))
+    else if (DSPSignalNotification::match(message))
+    {
+        DSPSignalNotification& cfg = (DSPSignalNotification&) message;
+        m_basebandSampleRate = cfg.getSampleRate();
+        int sinkSampleRate = m_basebandSampleRate / (1<<m_settings.m_log2Decim);
+        ui->channelSampleRateText->setText(tr("%1k").arg(QString::number(sinkSampleRate / 1000.0f, 'g', 5)));
+
+        if (sinkSampleRate > 1000) {
+            ui->rfBW->setMaximum(sinkSampleRate/100);
+        }
+
+        return true;
+    }
+    else if (FreqTrackerReport::MsgSinkFrequencyOffsetNotification::match(message))
     {
         if (!m_settings.m_tracking) {
-            qDebug("FreqTrackerGUI::handleMessage: FreqTracker::MsgSampleRateNotification");
+            qDebug("FreqTrackerGUI::handleMessage: FreqTrackerReport::MsgSinkFrequencyOffsetNotification");
         }
-        const FreqTracker::MsgSampleRateNotification& cfg = (FreqTracker::MsgSampleRateNotification&) message;
-        m_channelSampleRate = cfg.getSampleRate();
-        ui->channelSampleRateText->setText(tr("%1k").arg(QString::number(m_channelSampleRate / 1000.0f, 'g', 5)));
-        blockApplySettings(true);
+        const FreqTrackerReport::MsgSinkFrequencyOffsetNotification& cfg = (FreqTrackerReport::MsgSinkFrequencyOffsetNotification&) message;
         m_settings.m_inputFrequencyOffset = cfg.getFrequencyOffset();
+        m_channelMarker.setCenterFrequency(m_settings.m_inputFrequencyOffset);
         ui->deltaFrequency->setValue(m_settings.m_inputFrequencyOffset);
-        m_channelMarker.setCenterFrequency(cfg.getFrequencyOffset());
-        blockApplySettings(false);
-
-        if (m_channelSampleRate > 1000) {
-            ui->rfBW->setMaximum(m_channelSampleRate/100);
-        }
 
         return true;
     }
@@ -163,6 +169,13 @@ void FreqTrackerGUI::on_deltaFrequency_changed(qint64 value)
 void FreqTrackerGUI::on_log2Decim_currentIndexChanged(int index)
 {
     m_settings.m_log2Decim = index < 0 ? 0 : index > 6 ? 6 : index;
+    int sinkSampleRate = m_basebandSampleRate / (1<<m_settings.m_log2Decim);
+    ui->channelSampleRateText->setText(tr("%1k").arg(QString::number(sinkSampleRate / 1000.0f, 'g', 5)));
+
+    if (sinkSampleRate > 1000) {
+        ui->rfBW->setMaximum(sinkSampleRate/100);
+    }
+
     applySettings();
 }
 
@@ -271,6 +284,20 @@ void FreqTrackerGUI::onMenuDialogCalled(const QPoint &p)
 
         applySettings();
     }
+    else if ((m_contextMenuType == ContextMenuStreamSettings) && (m_deviceUISet->m_deviceMIMOEngine))
+    {
+        DeviceStreamSelectionDialog dialog(this);
+        dialog.setNumberOfStreams(m_freqTracker->getNumberOfDeviceStreams());
+        dialog.setStreamIndex(m_settings.m_streamIndex);
+        dialog.move(p);
+        dialog.exec();
+
+        m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+        m_channelMarker.clearStreamIndexes();
+        m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+        displayStreamIndex();
+        applySettings();
+    }
 
     resetContextMenuType();
 }
@@ -281,7 +308,7 @@ FreqTrackerGUI::FreqTrackerGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, B
 	m_pluginAPI(pluginAPI),
 	m_deviceUISet(deviceUISet),
 	m_channelMarker(this),
-    m_channelSampleRate(0),
+    m_basebandSampleRate(0),
 	m_doApplySettings(true),
 	m_squelchOpen(false),
 	m_tickCount(0)
@@ -305,7 +332,7 @@ FreqTrackerGUI::FreqTrackerGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, B
 	m_channelMarker.setColor(Qt::yellow);
 	m_channelMarker.setBandwidth(5000);
 	m_channelMarker.setCenterFrequency(0);
-    m_channelMarker.setTitle("AM Demodulator");
+    m_channelMarker.setTitle("Frequency Tracker");
     m_channelMarker.blockSignals(false);
     m_channelMarker.setVisible(true); // activate signal on the last setting only
 
@@ -383,7 +410,18 @@ void FreqTrackerGUI::displaySettings()
     ui->squelchGateText->setText(QString("%1").arg(m_settings.m_squelchGate * 10.0f, 0, 'f', 0));
     ui->squelchGate->setValue(m_settings.m_squelchGate);
 
+    displayStreamIndex();
+
     blockApplySettings(false);
+}
+
+void FreqTrackerGUI::displayStreamIndex()
+{
+    if (m_deviceUISet->m_deviceMIMOEngine) {
+        setStreamIndicator(tr("%1").arg(m_settings.m_streamIndex));
+    } else {
+        setStreamIndicator("S"); // single channel indicator
+    }
 }
 
 void FreqTrackerGUI::leaveEvent(QEvent*)

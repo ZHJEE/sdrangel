@@ -46,6 +46,7 @@ PlutoSDROutput::PlutoSDROutput(DeviceAPI *deviceAPI) :
     m_plutoTxBuffer(0),
     m_plutoSDROutputThread(0)
 {
+    m_deviceAPI->setNbSinkStreams(1);
     m_deviceSampleRates.m_addaConnvRate = 0;
     m_deviceSampleRates.m_bbRateHz = 0;
     m_deviceSampleRates.m_firRate = 0;
@@ -232,7 +233,7 @@ bool PlutoSDROutput::handleMessage(const Message& message)
 
 bool PlutoSDROutput::openDevice()
 {
-    m_sampleSourceFifo.resize(32*PLUTOSDR_BLOCKSIZE_SAMPLES);
+    m_sampleSourceFifo.resize(SampleSourceFifo::getSizePolicy(m_settings.m_devSampleRate));
 
     // look for Rx buddy and get reference to common parameters
     if (m_deviceAPI->getSourceBuddies().size() > 0) // then sink
@@ -258,11 +259,31 @@ bool PlutoSDROutput::openDevice()
     else
     {
         qDebug("PlutoSDROutput::openDevice: open device here");
-
         m_deviceShared.m_deviceParams = new DevicePlutoSDRParams();
-        char serial[256];
-        strcpy(serial, qPrintable(m_deviceAPI->getSamplingDeviceSerial()));
-        m_deviceShared.m_deviceParams->open(serial);
+
+        if (m_deviceAPI->getHardwareUserArguments().size() != 0)
+        {
+            QStringList kv = m_deviceAPI->getHardwareUserArguments().split('='); // expecting "uri=xxx"
+
+            if (kv.size() > 1)
+            {
+                if (kv.at(0) == "uri") {
+                     m_deviceShared.m_deviceParams->openURI(kv.at(1).toStdString());
+                } else {
+                    return false;
+                }
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else
+        {
+            char serial[256];
+            strcpy(serial, qPrintable(m_deviceAPI->getSamplingDeviceSerial()));
+            m_deviceShared.m_deviceParams->open(serial);
+        }
     }
 
     m_deviceAPI->setBuddySharedPtr(&m_deviceShared); // propagate common parameters to API
@@ -431,10 +452,17 @@ bool PlutoSDROutput::applySettings(const PlutoSDROutputSettings& settings, bool 
         forwardChangeOwnDSP = (m_settings.m_devSampleRate != settings.m_devSampleRate) || force;
     }
 
+	if ((m_settings.m_devSampleRate != settings.m_devSampleRate) || (m_settings.m_log2Interp != settings.m_log2Interp) || force)
+	{
+        unsigned int fifoRate = std::max(
+            (unsigned int) settings.m_devSampleRate / (1<<settings.m_log2Interp),
+            DevicePlutoSDRShared::m_sampleFifoMinRate);
+        m_sampleSourceFifo.resize(SampleSourceFifo::getSizePolicy(fifoRate));
+	}
+
     if ((m_settings.m_log2Interp != settings.m_log2Interp) || force)
     {
         reverseAPIKeys.append("log2Interp");
-        m_sampleSourceFifo.resize((32*PLUTOSDR_BLOCKSIZE_SAMPLES)/(1<<settings.m_log2Interp));
 
         if (m_plutoSDROutputThread != 0)
         {
@@ -669,7 +697,26 @@ int PlutoSDROutput::webapiSettingsPutPatch(
 {
     (void) errorMessage;
     PlutoSDROutputSettings settings = m_settings;
+    webapiUpdateDeviceSettings(settings, deviceSettingsKeys, response);
 
+    MsgConfigurePlutoSDR *msg = MsgConfigurePlutoSDR::create(settings, force);
+    m_inputMessageQueue.push(msg);
+
+    if (m_guiMessageQueue) // forward to GUI if any
+    {
+        MsgConfigurePlutoSDR *msgToGUI = MsgConfigurePlutoSDR::create(settings, force);
+        m_guiMessageQueue->push(msgToGUI);
+    }
+
+    webapiFormatDeviceSettings(response, settings);
+    return 200;
+}
+
+void PlutoSDROutput::webapiUpdateDeviceSettings(
+        PlutoSDROutputSettings& settings,
+        const QStringList& deviceSettingsKeys,
+        SWGSDRangel::SWGDeviceSettings& response)
+{
     if (deviceSettingsKeys.contains("centerFrequency")) {
         settings.m_centerFrequency = response.getPlutoSdrOutputSettings()->getCenterFrequency();
     }
@@ -723,18 +770,6 @@ int PlutoSDROutput::webapiSettingsPutPatch(
     if (deviceSettingsKeys.contains("reverseAPIDeviceIndex")) {
         settings.m_reverseAPIDeviceIndex = response.getPlutoSdrOutputSettings()->getReverseApiDeviceIndex();
     }
-
-    MsgConfigurePlutoSDR *msg = MsgConfigurePlutoSDR::create(settings, force);
-    m_inputMessageQueue.push(msg);
-
-    if (m_guiMessageQueue) // forward to GUI if any
-    {
-        MsgConfigurePlutoSDR *msgToGUI = MsgConfigurePlutoSDR::create(settings, force);
-        m_guiMessageQueue->push(msgToGUI);
-    }
-
-    webapiFormatDeviceSettings(response, settings);
-    return 200;
 }
 
 int PlutoSDROutput::webapiReportGet(
@@ -843,13 +878,14 @@ void PlutoSDROutput::webapiReverseSendSettings(QList<QString>& deviceSettingsKey
     m_networkRequest.setUrl(QUrl(deviceSettingsURL));
     m_networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-    QBuffer *buffer=new QBuffer();
+    QBuffer *buffer = new QBuffer();
     buffer->open((QBuffer::ReadWrite));
     buffer->write(swgDeviceSettings->asJson().toUtf8());
     buffer->seek(0);
 
     // Always use PATCH to avoid passing reverse API settings
-    m_networkManager->sendCustomRequest(m_networkRequest, "PATCH", buffer);
+    QNetworkReply *reply = m_networkManager->sendCustomRequest(m_networkRequest, "PATCH", buffer);
+    buffer->setParent(reply);
 
     delete swgDeviceSettings;
 }
@@ -868,16 +904,20 @@ void PlutoSDROutput::webapiReverseSendStartStop(bool start)
     m_networkRequest.setUrl(QUrl(deviceSettingsURL));
     m_networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-    QBuffer *buffer=new QBuffer();
+    QBuffer *buffer = new QBuffer();
     buffer->open((QBuffer::ReadWrite));
     buffer->write(swgDeviceSettings->asJson().toUtf8());
     buffer->seek(0);
+    QNetworkReply *reply;
 
     if (start) {
-        m_networkManager->sendCustomRequest(m_networkRequest, "POST", buffer);
+        reply = m_networkManager->sendCustomRequest(m_networkRequest, "POST", buffer);
     } else {
-        m_networkManager->sendCustomRequest(m_networkRequest, "DELETE", buffer);
+        reply = m_networkManager->sendCustomRequest(m_networkRequest, "DELETE", buffer);
     }
+
+    buffer->setParent(reply);
+    delete swgDeviceSettings;
 }
 
 void PlutoSDROutput::networkManagerFinished(QNetworkReply *reply)
@@ -890,10 +930,13 @@ void PlutoSDROutput::networkManagerFinished(QNetworkReply *reply)
                 << " error(" << (int) replyError
                 << "): " << replyError
                 << ": " << reply->errorString();
-        return;
+    }
+    else
+    {
+        QString answer = reply->readAll();
+        answer.chop(1); // remove last \n
+        qDebug("PlutoSDROutput::networkManagerFinished: reply:\n%s", answer.toStdString().c_str());
     }
 
-    QString answer = reply->readAll();
-    answer.chop(1); // remove last \n
-    qDebug("PlutoSDROutput::networkManagerFinished: reply:\n%s", answer.toStdString().c_str());
+    reply->deleteLater();
 }

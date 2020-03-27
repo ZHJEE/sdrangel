@@ -82,6 +82,7 @@ private:
     void blockApplySettings(bool block);
     void applySettings(bool force = false);
     void displaySettings();
+    void displayStreamIndex();
     void updateWithStreamData();
     void updateWithStreamTime();
 
@@ -110,11 +111,15 @@ private slots:
     void on_ctcss_currentIndexChanged(int index);
     void on_ctcssOn_toggled(bool checked);
 
+    void on_feedbackEnable_toggled(bool checked);
+    void on_feedbackVolume_valueChanged(int value);
+
     void onWidgetRolled(QWidget* widget, bool rollDown);
     void onMenuDialogCalled(const QPoint& p);
 
     void configureFileName();
     void audioSelect();
+    void audioFeedbackSelect();
     void tick();
 };
 

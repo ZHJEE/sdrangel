@@ -51,7 +51,7 @@ GLScopeGUI::GLScopeGUI(QWidget* parent) :
     qDebug("GLScopeGUI::GLScopeGUI");
     setEnabled(false);
     ui->setupUi(this);
-    ui->trigDelayFine->setMaximum(ScopeVis::m_traceChunkSize / 10.0);
+    ui->trigDelayFine->setMaximum(ScopeVis::m_traceChunkDefaultSize / 10.0);
     ui->traceColor->setStyleSheet("QLabel { background-color : rgb(255,255,64); }");
     m_focusedTraceColor.setRgb(255,255,64);
     ui->trigColor->setStyleSheet("QLabel { background-color : rgb(0,255,0); }");
@@ -114,13 +114,13 @@ void GLScopeGUI::setBuddies(MessageQueue* messageQueue, ScopeVis* scopeVis, GLSc
     ui->trigMode->clear();
     fillProjectionCombo(ui->trigMode);
 
-    m_scopeVis->configure(2*m_traceLenMult*ScopeVis::m_traceChunkSize,
+    m_scopeVis->configure(2*m_traceLenMult*m_scopeVis->getTraceChunkSize(),
             m_timeBase,
             m_timeOffset*10,
             (uint32_t) (m_glScope->getTraceSize() * (ui->trigPre->value()/100.0f)),
             ui->freerun->isChecked());
 
-    m_scopeVis->configure(m_traceLenMult*ScopeVis::m_traceChunkSize,
+    m_scopeVis->configure(m_traceLenMult*m_scopeVis->getTraceChunkSize(),
             m_timeBase,
             m_timeOffset*10,
             (uint32_t) (m_glScope->getTraceSize() * (ui->trigPre->value()/100.0f)),
@@ -155,7 +155,7 @@ void GLScopeGUI::on_scope_sampleRateChanged(int sampleRate)
 void GLScopeGUI::on_scope_traceSizeChanged(uint32_t traceNbSamples)
 {
     qDebug("GLScopeGUI::on_scope_traceSizeChanged: %u", traceNbSamples);
-    m_traceLenMult = traceNbSamples / ScopeVis::m_traceChunkSize;
+    m_traceLenMult = traceNbSamples / m_scopeVis->getTraceChunkSize();
     ui->traceLen->setValue(m_traceLenMult);
     setTraceLenDisplay();
 }
@@ -229,7 +229,6 @@ QByteArray GLScopeGUI::serialize() const
 
 bool GLScopeGUI::deserialize(const QByteArray& data)
 {
-    qDebug("GLScopeGUI::deserialize");
     SimpleDeserializer d(data);
 
     if(!d.isValid()) {
@@ -541,6 +540,11 @@ void GLScopeGUI::on_polarPoints_toggled(bool checked)
     m_glScope->setDisplayXYPoints(checked);
 }
 
+void GLScopeGUI::on_polarGrid_toggled(bool checked)
+{
+    m_glScope->setDisplayXYPolarGrid(checked);
+}
+
 void GLScopeGUI::on_traceIntensity_valueChanged(int value)
 {
     ui->traceIntensity->setToolTip(QString("Trace intensity: %1").arg(value));
@@ -558,7 +562,7 @@ void GLScopeGUI::on_time_valueChanged(int value)
     m_timeBase = value;
     setTimeScaleDisplay();
     setTraceDelayDisplay();
-    m_scopeVis->configure(m_traceLenMult*ScopeVis::m_traceChunkSize,
+    m_scopeVis->configure(m_traceLenMult*m_scopeVis->getTraceChunkSize(),
             m_timeBase,
             m_timeOffset*10,
             (uint32_t) (m_glScope->getTraceSize() * (ui->trigPre->value()/100.0f)),
@@ -573,7 +577,7 @@ void GLScopeGUI::on_timeOfs_valueChanged(int value)
 
     m_timeOffset = value;
     setTimeOfsDisplay();
-    m_scopeVis->configure(m_traceLenMult*ScopeVis::m_traceChunkSize,
+    m_scopeVis->configure(m_traceLenMult*m_scopeVis->getTraceChunkSize(),
             m_timeBase,
             m_timeOffset*10,
             (uint32_t) (m_glScope->getTraceSize() * (ui->trigPre->value()/100.0f)),
@@ -587,7 +591,7 @@ void GLScopeGUI::on_traceLen_valueChanged(int value)
     }
 
     m_traceLenMult = value;
-    m_scopeVis->configure(m_traceLenMult*ScopeVis::m_traceChunkSize,
+    m_scopeVis->configure(m_traceLenMult*m_scopeVis->getTraceChunkSize(),
             m_timeBase,
             m_timeOffset*10,
             (uint32_t) (m_glScope->getTraceSize() * (ui->trigPre->value()/100.0f)),
@@ -957,7 +961,7 @@ void GLScopeGUI::on_trigPre_valueChanged(int value)
 {
     (void) value;
     setTrigPreDisplay();
-    m_scopeVis->configure(m_traceLenMult*ScopeVis::m_traceChunkSize,
+    m_scopeVis->configure(m_traceLenMult*m_scopeVis->getTraceChunkSize(),
             m_timeBase,
             m_timeOffset*10,
             (uint32_t) (m_glScope->getTraceSize() * (ui->trigPre->value()/100.0f)),
@@ -995,7 +999,7 @@ void GLScopeGUI::on_freerun_toggled(bool checked)
         ui->trigOneShot->setEnabled(true);
     }
 
-    m_scopeVis->configure(m_traceLenMult*ScopeVis::m_traceChunkSize,
+    m_scopeVis->configure(m_traceLenMult*m_scopeVis->getTraceChunkSize(),
             m_timeBase,
             m_timeOffset*10,
             (uint32_t) (m_glScope->getTraceSize() * (ui->trigPre->value()/100.0f)),
@@ -1052,7 +1056,7 @@ void GLScopeGUI::setTimeScaleDisplay()
 
 void GLScopeGUI::setTraceLenDisplay()
 {
-    unsigned int n_samples = m_traceLenMult * ScopeVis::m_traceChunkSize;
+    unsigned int n_samples = m_traceLenMult * m_scopeVis->getTraceChunkSize();
 
     if (n_samples < 1000) {
         ui->traceLenText->setToolTip(tr("%1 S").arg(n_samples));
@@ -1231,8 +1235,8 @@ void GLScopeGUI::setTrigDelayDisplay()
 {
     if (m_sampleRate > 0)
     {
-        double delayMult = ui->trigDelayCoarse->value() + ui->trigDelayFine->value() / (ScopeVis::m_traceChunkSize / 10.0);
-        unsigned int n_samples_delay = m_traceLenMult * ScopeVis::m_traceChunkSize * delayMult;
+        double delayMult = ui->trigDelayCoarse->value() + ui->trigDelayFine->value() / (m_scopeVis->getTraceChunkSize() / 10.0);
+        unsigned int n_samples_delay = m_traceLenMult * m_scopeVis->getTraceChunkSize() * delayMult;
 
         if (n_samples_delay < 1000) {
             ui->trigDelayText->setToolTip(tr("%1 S").arg(n_samples_delay));
@@ -1310,6 +1314,8 @@ void GLScopeGUI::fillProjectionCombo(QComboBox* comboBox)
     comboBox->addItem("MagSq", Projector::ProjectionMagSq);
     comboBox->addItem("MagdB", Projector::ProjectionMagDB);
     comboBox->addItem("Phi", Projector::ProjectionPhase);
+    comboBox->addItem("DOAP", Projector::ProjectionDOAP);
+    comboBox->addItem("DOAN", Projector::ProjectionDOAN);
     comboBox->addItem("dPhi", Projector::ProjectionDPhase);
     comboBox->addItem("BPSK", Projector::ProjectionBPSK);
     comboBox->addItem("QPSK", Projector::ProjectionQPSK);
@@ -1375,8 +1381,8 @@ void GLScopeGUI::fillTriggerData(ScopeVis::TriggerData& triggerData)
     triggerData.m_triggerBothEdges = ui->trigBoth->isChecked();
     triggerData.m_triggerHoldoff = ui->trigHoldoff->value();
     triggerData.m_triggerRepeat = ui->trigCount->value();
-    triggerData.m_triggerDelayMult = ui->trigDelayCoarse->value() + ui->trigDelayFine->value() / (ScopeVis::m_traceChunkSize / 10.0);
-    triggerData.m_triggerDelay = (int) (m_traceLenMult * ScopeVis::m_traceChunkSize * triggerData.m_triggerDelayMult);
+    triggerData.m_triggerDelayMult = ui->trigDelayCoarse->value() + ui->trigDelayFine->value() / (m_scopeVis->getTraceChunkSize() / 10.0);
+    triggerData.m_triggerDelay = (int) (m_traceLenMult * m_scopeVis->getTraceChunkSize() * triggerData.m_triggerDelayMult);
     triggerData.m_triggerDelayCoarse = ui->trigDelayCoarse->value();
     triggerData.m_triggerDelayFine = ui->trigDelayFine->value();
     triggerData.setColor(m_focusedTriggerColor);
@@ -1695,4 +1701,7 @@ void GLScopeGUI::focusOnTrigger(int triggerIndex)
     on_trig_valueChanged(triggerIndex);
 }
 
-
+void GLScopeGUI::traceLengthChange()
+{
+    on_traceLen_valueChanged(m_traceLenMult);
+}

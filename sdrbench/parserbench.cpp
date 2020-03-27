@@ -24,7 +24,7 @@
 
 ParserBench::ParserBench() :
     m_testOption(QStringList() << "t" << "test",
-        "Test type.",
+        "Test type: decimateii, decimatefi, decimateff, decimateif, decimateinfii, decimatesupii, ambe",
         "test",
         "decimateii"),
     m_nbSamplesOption(QStringList() << "n" << "nb-samples",
@@ -125,6 +125,8 @@ ParserBench::TestType ParserBench::getTestType() const
         return TestDecimatorsInfII;
     } else if (m_testStr == "decimatesupii") {
         return TestDecimatorsSupII;
+    } else if (m_testStr == "ambe") {
+        return TestAMBE;
     } else {
         return TestDecimatorsII;
     }

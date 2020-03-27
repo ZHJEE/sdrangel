@@ -22,15 +22,15 @@
 #include <QDebug>
 
 #include "device/deviceuiset.h"
-#include "dsp/upchannelizer.h"
-#include "dsp/threadedbasebandsamplesource.h"
 #include "plugin/pluginapi.h"
 #include "util/simpleserializer.h"
 #include "util/db.h"
 #include "dsp/dspengine.h"
+#include "dsp/cwkeyer.h"
 #include "gui/crightclickenabler.h"
 #include "gui/audioselectdialog.h"
 #include "gui/basicchannelsettingsdialog.h"
+#include "gui/devicestreamselectiondialog.h"
 #include "mainwindow.h"
 
 #include "ui_wfmmodgui.h"
@@ -119,7 +119,8 @@ bool WFMModGUI::handleMessage(const Message& message)
     else if (CWKeyer::MsgConfigureCWKeyer::match(message))
     {
         const CWKeyer::MsgConfigureCWKeyer& cfg = (CWKeyer::MsgConfigureCWKeyer&) message;
-        ui->cwKeyerGUI->displaySettings(cfg.getSettings());
+        ui->cwKeyerGUI->setSettings(cfg.getSettings());
+        ui->cwKeyerGUI->displaySettings();
         return true;
     }
     else
@@ -310,6 +311,20 @@ void WFMModGUI::onMenuDialogCalled(const QPoint &p)
 
         applySettings();
     }
+    else if ((m_contextMenuType == ContextMenuStreamSettings) && (m_deviceUISet->m_deviceMIMOEngine))
+    {
+        DeviceStreamSelectionDialog dialog(this);
+        dialog.setNumberOfStreams(m_wfmMod->getNumberOfDeviceStreams());
+        dialog.setStreamIndex(m_settings.m_streamIndex);
+        dialog.move(p);
+        dialog.exec();
+
+        m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+        m_channelMarker.clearStreamIndexes();
+        m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+        displayStreamIndex();
+        applySettings();
+    }
 
     resetContextMenuType();
 }
@@ -360,6 +375,7 @@ WFMModGUI::WFMModGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, BasebandSam
     m_channelMarker.setBandwidth(125000);
     m_channelMarker.setCenterFrequency(0);
     m_channelMarker.setTitle("WFM Modulator");
+    m_channelMarker.setSourceOrSinkStream(false);
     m_channelMarker.blockSignals(false);
     m_channelMarker.setVisible(true); // activate signal on the last setting only
 
@@ -374,13 +390,13 @@ WFMModGUI::WFMModGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, BasebandSam
     ui->tone->setChecked(false);
     ui->mic->setChecked(false);
 
-    ui->cwKeyerGUI->setBuddies(m_wfmMod->getInputMessageQueue(), m_wfmMod->getCWKeyer());
+    ui->cwKeyerGUI->setCWKeyer(m_wfmMod->getCWKeyer());
 
     m_settings.setChannelMarker(&m_channelMarker);
     m_settings.setCWKeyerGUI(ui->cwKeyerGUI);
 
 	connect(getInputMessageQueue(), SIGNAL(messageEnqueued()), this, SLOT(handleSourceMessages()));
-	connect(m_wfmMod, SIGNAL(levelChanged(qreal, qreal, int)), ui->volumeMeter, SLOT(levelChanged(qreal, qreal, int)));
+    m_wfmMod->setLevelMeter(ui->volumeMeter);
 
 	displaySettings();
     applySettings(true);
@@ -403,14 +419,7 @@ void WFMModGUI::applySettings(bool force)
 	if (m_doApplySettings)
 	{
 		setTitleColor(m_channelMarker.getColor());
-
-		WFMMod::MsgConfigureChannelizer *msgChan = WFMMod::MsgConfigureChannelizer::create(
-		        requiredBW(WFMModSettings::getRFBW(ui->rfBW->currentIndex())),
-                m_channelMarker.getCenterFrequency());
-        m_wfmMod->getInputMessageQueue()->push(msgChan);
-
 		ui->deltaFrequency->setValue(m_channelMarker.getCenterFrequency());
-
 		WFMMod::MsgConfigureWFMMod *msgConf = WFMMod::MsgConfigureWFMMod::create(m_settings, force);
 		m_wfmMod->getInputMessageQueue()->push(msgConf);
 	}
@@ -427,6 +436,7 @@ void WFMModGUI::displaySettings()
 
     setTitleColor(m_settings.m_rgbColor);
     setWindowTitle(m_channelMarker.getTitle());
+    displayStreamIndex();
 
     blockApplySettings(true);
 
@@ -460,6 +470,15 @@ void WFMModGUI::displaySettings()
     ui->morseKeyer->setChecked(m_settings.m_modAFInput == WFMModSettings::WFMModInputAF::WFMModInputCWTone);
 
     blockApplySettings(false);
+}
+
+void WFMModGUI::displayStreamIndex()
+{
+    if (m_deviceUISet->m_deviceMIMOEngine) {
+        setStreamIndicator(tr("%1").arg(m_settings.m_streamIndex));
+    } else {
+        setStreamIndicator("S"); // single channel indicator
+    }
 }
 
 void WFMModGUI::leaveEvent(QEvent*)

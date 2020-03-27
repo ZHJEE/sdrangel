@@ -24,10 +24,13 @@
 #include "remotesinkgui.h"
 #endif
 #include "remotesink.h"
+#include "remotesinkwebapiadapter.h"
+#include "remotesinkplugin.h"
 
 const PluginDescriptor RemoteSinkPlugin::m_pluginDescriptor = {
+    RemoteSink::m_channelId,
     QString("Remote channel sink"),
-    QString("4.5.6"),
+    QString("4.12.3"),
     QString("(c) Edouard Griffiths, F4EXB"),
     QString("https://github.com/f4exb/sdrangel"),
     true,
@@ -55,28 +58,29 @@ void RemoteSinkPlugin::initPlugin(PluginAPI* pluginAPI)
 
 #ifdef SERVER_MODE
 PluginInstanceGUI* RemoteSinkPlugin::createRxChannelGUI(
-        DeviceUISet *deviceUISet __attribute__((unused)),
-        BasebandSampleSink *rxChannel __attribute__((unused)))
+        DeviceUISet *deviceUISet,
+        BasebandSampleSink *rxChannel) const
 {
     return 0;
 }
 #else
-PluginInstanceGUI* RemoteSinkPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel)
+PluginInstanceGUI* RemoteSinkPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel) const
 {
     return RemoteSinkGUI::create(m_pluginAPI, deviceUISet, rxChannel);
 }
 #endif
 
-BasebandSampleSink* RemoteSinkPlugin::createRxChannelBS(DeviceAPI *deviceAPI)
+BasebandSampleSink* RemoteSinkPlugin::createRxChannelBS(DeviceAPI *deviceAPI) const
 {
     return new RemoteSink(deviceAPI);
 }
 
-ChannelAPI* RemoteSinkPlugin::createRxChannelCS(DeviceAPI *deviceAPI)
+ChannelAPI* RemoteSinkPlugin::createRxChannelCS(DeviceAPI *deviceAPI) const
 {
     return new RemoteSink(deviceAPI);
 }
 
-
-
-
+ChannelWebAPIAdapter* RemoteSinkPlugin::createChannelWebAPIAdapter() const
+{
+	return new RemoteSinkWebAPIAdapter();
+}

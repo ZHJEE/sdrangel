@@ -34,6 +34,7 @@ struct WFMDemodSettings
     quint32 m_rgbColor;
     QString m_title;
     QString m_audioDeviceName;
+    int m_streamIndex; //!< MIMO channel. Not relevant when connected to SI (single Rx).
     bool m_useReverseAPI;
     QString m_reverseAPIAddress;
     uint16_t m_reverseAPIPort;
@@ -42,8 +43,9 @@ struct WFMDemodSettings
 
     Serializable *m_channelMarker;
 
-    static const int m_nbRFBW;
-    static const int m_rfBW[];
+    static const int m_rfBWMin;
+    static const int m_rfBWMax;
+    static const int m_rfBWDigits;
 
     WFMDemodSettings();
     void resetToDefaults();
@@ -51,8 +53,14 @@ struct WFMDemodSettings
     QByteArray serialize() const;
     bool deserialize(const QByteArray& data);
 
-    static int getRFBW(int index);
-    static int getRFBWIndex(int rfbw);
+    static int requiredBW(int rfBW)
+    {
+        if (rfBW <= 48000) {
+            return 48000;
+        } else {
+            return (3*rfBW)/2;
+        }
+    }
 };
 
 #endif /* PLUGINS_CHANNELRX_DEMODWFM_WFMDEMODSETTINGS_H_ */

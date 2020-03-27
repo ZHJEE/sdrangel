@@ -174,6 +174,23 @@ bool PlutoSDRInputGui::handleMessage(const Message& message)
 
         return true;
     }
+    else if (PlutoSDRInput::MsgFileRecord::match(message)) // API action "record" feedback
+    {
+        const PlutoSDRInput::MsgFileRecord& notif = (const PlutoSDRInput::MsgFileRecord&) message;
+        bool record = notif.getStartStop();
+
+        ui->record->blockSignals(true);
+        ui->record->setChecked(record);
+
+        if (record) {
+            ui->record->setStyleSheet("QToolButton { background-color : red; }");
+        } else {
+            ui->record->setStyleSheet("QToolButton { background:rgb(79,79,79); }");
+        }
+
+        ui->record->blockSignals(false);
+        return true;
+    }
     else
     {
         return false;
@@ -226,15 +243,33 @@ void PlutoSDRInputGui::on_iqImbalance_toggled(bool checked)
     sendSettings();
 }
 
+void PlutoSDRInputGui::on_rfDCOffset_toggled(bool checked)
+{
+    m_settings.m_hwRFDCBlock = checked;
+    sendSettings();
+}
+
+void PlutoSDRInputGui::on_bbDCOffset_toggled(bool checked)
+{
+    m_settings.m_hwBBDCBlock = checked;
+    sendSettings();
+}
+
+void PlutoSDRInputGui::on_hwIQImbalance_toggled(bool checked)
+{
+    m_settings.m_hwIQCorrection = checked;
+    sendSettings();
+}
+
+
 void PlutoSDRInputGui::on_swDecim_currentIndexChanged(int index)
 {
     m_settings.m_log2Decim = index > 6 ? 6 : index;
     displaySampleRate();
+    m_settings.m_devSampleRate = ui->sampleRate->getValueNew();
 
-    if (m_sampleRateMode) {
-        m_settings.m_devSampleRate = ui->sampleRate->getValueNew();
-    } else {
-        m_settings.m_devSampleRate = ui->sampleRate->getValueNew() * (1 << m_settings.m_log2Decim);
+    if (!m_sampleRateMode) {
+        m_settings.m_devSampleRate <<= m_settings.m_log2Decim;
     }
 
     sendSettings();
@@ -249,10 +284,10 @@ void PlutoSDRInputGui::on_fcPos_currentIndexChanged(int index)
 
 void PlutoSDRInputGui::on_sampleRate_changed(quint64 value)
 {
-    if (m_sampleRateMode) {
-        m_settings.m_devSampleRate = value;
-    } else {
-        m_settings.m_devSampleRate = value * (1 << m_settings.m_log2Decim);
+    m_settings.m_devSampleRate = value;
+
+    if (!m_sampleRateMode) {
+        m_settings.m_devSampleRate <<= m_settings.m_log2Decim;
     }
 
     displayFcTooltip();
@@ -379,6 +414,9 @@ void PlutoSDRInputGui::displaySettings()
 
     ui->dcOffset->setChecked(m_settings.m_dcBlock);
     ui->iqImbalance->setChecked(m_settings.m_iqCorrection);
+    ui->bbDCOffset->setChecked(m_settings.m_hwBBDCBlock);
+    ui->rfDCOffset->setChecked(m_settings.m_hwRFDCBlock);
+    ui->hwIQImbalance->setChecked(m_settings.m_hwIQCorrection);
     ui->loPPM->setValue(m_settings.m_LOppmTenths);
     ui->loPPMText->setText(QString("%1").arg(QString::number(m_settings.m_LOppmTenths/10.0, 'f', 1)));
 

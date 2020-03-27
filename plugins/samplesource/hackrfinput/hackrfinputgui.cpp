@@ -155,6 +155,23 @@ bool HackRFInputGui::handleMessage(const Message& message)
 
         return true;
     }
+    else if (HackRFInput::MsgFileRecord::match(message)) // API action "record" feedback
+    {
+        const HackRFInput::MsgFileRecord& notif = (const HackRFInput::MsgFileRecord&) message;
+        bool record = notif.getStartStop();
+
+        ui->record->blockSignals(true);
+        ui->record->setChecked(record);
+
+        if (record) {
+            ui->record->setStyleSheet("QToolButton { background-color : red; }");
+        } else {
+            ui->record->setStyleSheet("QToolButton { background:rgb(79,79,79); }");
+        }
+
+        ui->record->blockSignals(false);
+        return true;
+    }
     else
     {
         return false;
@@ -194,6 +211,21 @@ void HackRFInputGui::updateSampleRateAndFrequency()
     m_deviceUISet->getSpectrum()->setSampleRate(m_sampleRate);
     m_deviceUISet->getSpectrum()->setCenterFrequency(m_deviceCenterFrequency);
     displaySampleRate();
+}
+
+void HackRFInputGui::updateFrequencyLimits()
+{
+    // values in kHz
+    qint64 deltaFrequency = m_settings.m_transverterMode ? m_settings.m_transverterDeltaFrequency/1000 : 0;
+    qint64 minLimit = (0U) + deltaFrequency;
+    qint64 maxLimit = (7250000U) + deltaFrequency;
+
+    minLimit = minLimit < 0 ? 0 : minLimit > 9999999 ? 9999999 : minLimit;
+    maxLimit = maxLimit < 0 ? 0 : maxLimit > 9999999 ? 9999999 : maxLimit;
+
+    qDebug("HackRFInputGui::updateFrequencyLimits: delta: %lld min: %lld max: %lld", deltaFrequency, minLimit, maxLimit);
+
+    ui->centerFrequency->setValueRange(7, minLimit, maxLimit);
 }
 
 void HackRFInputGui::displaySampleRate()
@@ -242,6 +274,8 @@ void HackRFInputGui::displaySettings()
     blockApplySettings(true);
 
 	ui->centerFrequency->setValue(m_settings.m_centerFrequency / 1000);
+    ui->transverter->setDeltaFrequency(m_settings.m_transverterDeltaFrequency);
+    ui->transverter->setDeltaFrequencyActive(m_settings.m_transverterMode);
 
 	ui->LOppm->setValue(m_settings.m_LOppmTenths);
 	ui->LOppmText->setText(QString("%1").arg(QString::number(m_settings.m_LOppmTenths/10.0, 'f', 1)));
@@ -345,10 +379,10 @@ void HackRFInputGui::on_centerFrequency_changed(quint64 value)
 
 void HackRFInputGui::on_sampleRate_changed(quint64 value)
 {
-    if (m_sampleRateMode) {
-        m_settings.m_devSampleRate = value;
-    } else {
-        m_settings.m_devSampleRate = value * (1 << m_settings.m_log2Decim);
+    m_settings.m_devSampleRate = value;
+
+    if (!m_sampleRateMode) {
+        m_settings.m_devSampleRate <<= m_settings.m_log2Decim;
     }
 
     displayFcTooltip();
@@ -363,11 +397,10 @@ void HackRFInputGui::on_decim_currentIndexChanged(int index)
 
 	m_settings.m_log2Decim = index;
     displaySampleRate();
+    m_settings.m_devSampleRate = ui->sampleRate->getValueNew();
 
-    if (m_sampleRateMode) {
-        m_settings.m_devSampleRate = ui->sampleRate->getValueNew();
-    } else {
-        m_settings.m_devSampleRate = ui->sampleRate->getValueNew() * (1 << m_settings.m_log2Decim);
+    if (!m_sampleRateMode) {
+        m_settings.m_devSampleRate <<= m_settings.m_log2Decim;
     }
 
     sendSettings();
@@ -437,6 +470,16 @@ void HackRFInputGui::updateHardware()
         m_forceSettings = false;
         m_updateTimer.stop();
     }
+}
+
+void HackRFInputGui::on_transverter_clicked()
+{
+    m_settings.m_transverterMode = ui->transverter->getDeltaFrequencyAcive();
+    m_settings.m_transverterDeltaFrequency = ui->transverter->getDeltaFrequency();
+    qDebug("HackRFInputGui::on_transverter_clicked: %lld Hz %s", m_settings.m_transverterDeltaFrequency, m_settings.m_transverterMode ? "on" : "off");
+    updateFrequencyLimits();
+    m_settings.m_centerFrequency = ui->centerFrequency->getValueNew()*1000;
+    sendSettings();
 }
 
 void HackRFInputGui::blockApplySettings(bool block)

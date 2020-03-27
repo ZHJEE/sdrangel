@@ -26,7 +26,7 @@
 #include "bladerf2/devicebladerf2shared.h"
 #include "dsp/interpolators.h"
 
-class SampleSinkFifo;
+class SampleSourceFifo;
 
 class BladeRF2OutputThread : public QThread {
     Q_OBJECT
@@ -73,6 +73,7 @@ private:
     unsigned int getNbFifos();
     void callbackSO(qint16* buf, qint32 len, unsigned int channel = 0);
     void callbackMO(qint16* buf, qint32 samplesPerChannel);
+    void callbackPart(qint16* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd, unsigned int channel);
 };
 
 

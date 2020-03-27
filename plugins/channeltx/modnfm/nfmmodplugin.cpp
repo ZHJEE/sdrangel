@@ -22,11 +22,13 @@
 #include "nfmmodgui.h"
 #endif
 #include "nfmmod.h"
+#include "nfmmodwebapiadapter.h"
 #include "nfmmodplugin.h"
 
 const PluginDescriptor NFMModPlugin::m_pluginDescriptor = {
+    NFMMod::m_channelId,
     QString("NFM Modulator"),
-    QString("4.5.2"),
+    QString("4.12.3"),
     QString("(c) Edouard Griffiths, F4EXB"),
     QString("https://github.com/f4exb/sdrangel"),
     true,
@@ -54,26 +56,29 @@ void NFMModPlugin::initPlugin(PluginAPI* pluginAPI)
 
 #ifdef SERVER_MODE
 PluginInstanceGUI* NFMModPlugin::createTxChannelGUI(
-        DeviceUISet *deviceUISet __attribute__((unused)),
-        BasebandSampleSource *txChannel __attribute__((unused)))
+        DeviceUISet *deviceUISet,
+        BasebandSampleSource *txChannel) const
 {
     return 0;
 }
 #else
-PluginInstanceGUI* NFMModPlugin::createTxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSource *txChannel)
+PluginInstanceGUI* NFMModPlugin::createTxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSource *txChannel) const
 {
     return NFMModGUI::create(m_pluginAPI, deviceUISet, txChannel);
 }
 #endif
 
-BasebandSampleSource* NFMModPlugin::createTxChannelBS(DeviceAPI *deviceAPI)
+BasebandSampleSource* NFMModPlugin::createTxChannelBS(DeviceAPI *deviceAPI) const
 {
     return new NFMMod(deviceAPI);
 }
 
-ChannelAPI* NFMModPlugin::createTxChannelCS(DeviceAPI *deviceAPI)
+ChannelAPI* NFMModPlugin::createTxChannelCS(DeviceAPI *deviceAPI) const
 {
     return new NFMMod(deviceAPI);
 }
 
-
+ChannelWebAPIAdapter* NFMModPlugin::createChannelWebAPIAdapter() const
+{
+	return new NFMModWebAPIAdapter();
+}

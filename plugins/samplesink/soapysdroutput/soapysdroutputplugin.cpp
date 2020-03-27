@@ -22,6 +22,7 @@
 #include "soapysdr/devicesoapysdr.h"
 
 #include "soapysdroutputplugin.h"
+#include "soapysdroutputwebapiadapter.h"
 
 #ifdef SERVER_MODE
 #include "soapysdroutput.h"
@@ -30,8 +31,9 @@
 #endif
 
 const PluginDescriptor SoapySDROutputPlugin::m_pluginDescriptor = {
+    QString("SoapySDR"),
     QString("SoapySDR Output"),
-    QString("4.5.2"),
+    QString("4.12.3"),
     QString("(c) Edouard Griffiths, F4EXB"),
     QString("https://github.com/f4exb/sdrangel"),
     true,
@@ -56,33 +58,45 @@ void SoapySDROutputPlugin::initPlugin(PluginAPI* pluginAPI)
     pluginAPI->registerSampleSink(m_deviceTypeID, this);
 }
 
-PluginInterface::SamplingDevices SoapySDROutputPlugin::enumSampleSinks()
+void SoapySDROutputPlugin::enumOriginDevices(QStringList& listedHwIds, OriginDevices& originDevices)
+{
+    if (listedHwIds.contains(m_hardwareID)) { // check if it was done
+        return;
+    }
+
+    DeviceSoapySDR& deviceSoapySDR = DeviceSoapySDR::instance();
+    deviceSoapySDR.enumOriginDevices(m_hardwareID, originDevices);
+    listedHwIds.append(m_hardwareID);
+}
+
+PluginInterface::SamplingDevices SoapySDROutputPlugin::enumSampleSinks(const OriginDevices& originDevices)
 {
     SamplingDevices result;
-    DeviceSoapySDR& deviceSoapySDR = DeviceSoapySDR::instance();
-    const std::vector<DeviceSoapySDRScan::SoapySDRDeviceEnum>& devicesEnumeration = deviceSoapySDR.getDevicesEnumeration();
-    qDebug("SoapySDROutputPlugin::enumSampleSinks: %lu SoapySDR devices. Enumerate these with Tx channel(s):", devicesEnumeration.size());
-    std::vector<DeviceSoapySDRScan::SoapySDRDeviceEnum>::const_iterator it = devicesEnumeration.begin();
 
-    for (int idev = 0; it != devicesEnumeration.end(); ++it, idev++)
+    for (OriginDevices::const_iterator it = originDevices.begin(); it != originDevices.end(); ++it)
     {
-        unsigned int nbTxChannels = it->m_nbTx;
-
-        for (unsigned int ichan = 0; ichan < nbTxChannels; ichan++)
+        if (it->hardwareId == m_hardwareID)
         {
-            QString displayedName(QString("SoapySDR[%1:%2] %3").arg(idev).arg(ichan).arg(it->m_label));
-            QString serial(QString("%1-%2").arg(it->m_driverName).arg(it->m_sequence));
-            qDebug("SoapySDROutputPlugin::enumSampleSinks: device #%d (%s) serial %s channel %u",
-                    idev, it->m_label.toStdString().c_str(), serial.toStdString().c_str(), ichan);
-            result.append(SamplingDevice(displayedName,
-                    m_hardwareID,
+            unsigned int nbTxChannels = it->nbTxStreams;
+
+            for (unsigned int ichan = 0; ichan < nbTxChannels; ichan++)
+            {
+                QString displayedName = it->displayableName;
+                displayedName.replace(QString("$1]"), QString("%1]").arg(ichan));
+                qDebug("SoapySDROutputPlugin::enumSampleSinks: device #%d serial %s channel %u",
+                        it->sequence, it->serial.toStdString().c_str(), ichan);
+                result.append(SamplingDevice(
+                    displayedName,
+                    it->hardwareId,
                     m_deviceTypeID,
-                    serial,
-                    idev,
+                    it->serial,
+                    it->sequence,
                     PluginInterface::SamplingDevice::PhysicalDevice,
                     PluginInterface::SamplingDevice::StreamSingleTx,
                     nbTxChannels,
-                    ichan));
+                    ichan
+                ));
+            }
         }
     }
 
@@ -91,10 +105,13 @@ PluginInterface::SamplingDevices SoapySDROutputPlugin::enumSampleSinks()
 
 #ifdef SERVER_MODE
 PluginInstanceGUI* SoapySDROutputPlugin::createSampleSinkPluginInstanceGUI(
-        const QString& sinkId __attribute__((unused)),
-        QWidget **widget __attribute__((unused)),
-        DeviceUISet *deviceUISet __attribute__((unused)))
+        const QString& sinkId,
+        QWidget **widget,
+        DeviceUISet *deviceUISet)
 {
+    (void) sinkId;
+    (void) widget;
+    (void) deviceUISet;
     return 0;
 }
 #else
@@ -116,7 +133,7 @@ PluginInstanceGUI* SoapySDROutputPlugin::createSampleSinkPluginInstanceGUI(
 }
 #endif
 
-DeviceSampleSink* SoapySDROutputPlugin::createSampleSinkPluginInstanceOutput(const QString& sinkId, DeviceAPI *deviceAPI)
+DeviceSampleSink* SoapySDROutputPlugin::createSampleSinkPluginInstance(const QString& sinkId, DeviceAPI *deviceAPI)
 {
     if(sinkId == m_deviceTypeID)
     {
@@ -129,7 +146,7 @@ DeviceSampleSink* SoapySDROutputPlugin::createSampleSinkPluginInstanceOutput(con
     }
 }
 
-
-
-
-
+DeviceWebAPIAdapter *SoapySDROutputPlugin::createDeviceWebAPIAdapter() const
+{
+    return new SoapySDROutputWebAPIAdapter();
+}

@@ -51,7 +51,7 @@ public:
         { }
     };
 
-    LocalSourceThread(QObject* parent = 0);
+    LocalSourceThread(QObject* parent = nullptr);
     ~LocalSourceThread();
 
     void startStop(bool start);
@@ -61,7 +61,7 @@ public slots:
     void pullSamples(unsigned int count);
 
 signals:
-    void samplesAvailable(int offset);
+    void samplesAvailable(unsigned int iPart1Begin, unsigned int iPart1End, unsigned int iPart2Begin, unsigned int iPart2End);
 
 private:
 	QMutex m_startWaitMutex;

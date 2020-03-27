@@ -22,10 +22,11 @@
 #include <QMutex>
 #include <QWaitCondition>
 #include <libbladeRF.h>
-#include "dsp/samplesourcefifo.h"
 #include "dsp/interpolators.h"
 
 #define BLADERFOUTPUT_BLOCKSIZE (1<<16)
+
+class SampleSourceFifo;
 
 class Bladerf1OutputThread : public QThread {
 	Q_OBJECT
@@ -54,6 +55,7 @@ private:
 
 	void run();
 	void callback(qint16* buf, qint32 len);
+    void callbackPart(qint16* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd);
 };
 
 #endif // INCLUDE_BLADERFOUTPUTTHREAD_H

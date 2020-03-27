@@ -23,29 +23,23 @@
 
 #include "remotesink.h"
 
-#include <sys/time.h>
-#include <unistd.h>
-#include <boost/crc.hpp>
-#include <boost/cstdint.hpp>
-
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QBuffer>
+#include <QThread>
 
 #include "SWGChannelSettings.h"
 
 #include "util/simpleserializer.h"
-#include "dsp/threadedbasebandsamplesink.h"
-#include "dsp/downchannelizer.h"
 #include "dsp/dspcommands.h"
 #include "dsp/hbfilterchainconverter.h"
+#include "dsp/devicesamplemimo.h"
+#include "dsp/dspdevicesourceengine.h"
 #include "device/deviceapi.h"
 
-#include "remotesinkthread.h"
+#include "remotesinkbaseband.h"
 
 MESSAGE_CLASS_DEFINITION(RemoteSink::MsgConfigureRemoteSink, Message)
-MESSAGE_CLASS_DEFINITION(RemoteSink::MsgSampleRateNotification, Message)
-MESSAGE_CLASS_DEFINITION(RemoteSink::MsgConfigureChannelizer, Message)
 
 const QString RemoteSink::m_channelIdURI = "sdrangel.channel.remotesink";
 const QString RemoteSink::m_channelId = "RemoteSink";
@@ -53,26 +47,18 @@ const QString RemoteSink::m_channelId = "RemoteSink";
 RemoteSink::RemoteSink(DeviceAPI *deviceAPI) :
         ChannelAPI(m_channelIdURI, ChannelAPI::StreamSingleSink),
         m_deviceAPI(deviceAPI),
-        m_running(false),
-        m_sinkThread(0),
-        m_txBlockIndex(0),
-        m_frameCount(0),
-        m_sampleIndex(0),
-        m_dataBlock(0),
-        m_centerFrequency(0),
         m_frequencyOffset(0),
-        m_sampleRate(48000),
-        m_deviceSampleRate(48000),
-        m_nbBlocksFEC(0),
-        m_txDelay(35),
-        m_dataAddress("127.0.0.1"),
-        m_dataPort(9090)
+        m_basebandSampleRate(0)
 {
     setObjectName(m_channelId);
 
-    m_channelizer = new DownChannelizer(this);
-    m_threadedChannelizer = new ThreadedBasebandSampleSink(m_channelizer, this);
-    m_deviceAPI->addChannelSink(m_threadedChannelizer);
+    m_thread = new QThread(this);
+    m_basebandSink = new RemoteSinkBaseband();
+    m_basebandSink->moveToThread(m_thread);
+
+    applySettings(m_settings, true);
+
+    m_deviceAPI->addChannelSink(this);
     m_deviceAPI->addChannelSinkAPI(this);
 
     m_networkManager = new QNetworkAccessManager();
@@ -83,227 +69,47 @@ RemoteSink::~RemoteSink()
 {
     disconnect(m_networkManager, SIGNAL(finished(QNetworkReply*)), this, SLOT(networkManagerFinished(QNetworkReply*)));
     delete m_networkManager;
-    m_dataBlockMutex.lock();
-
-    if (m_dataBlock && !m_dataBlock->m_txControlBlock.m_complete) {
-        delete m_dataBlock;
-    }
-
-    m_dataBlockMutex.unlock();
     m_deviceAPI->removeChannelSinkAPI(this);
-    m_deviceAPI->removeChannelSink(m_threadedChannelizer);
-    delete m_threadedChannelizer;
-    delete m_channelizer;
+    m_deviceAPI->removeChannelSink(this);
+    delete m_basebandSink;
+    delete m_thread;
 }
 
-void RemoteSink::setTxDelay(int txDelay, int nbBlocksFEC)
+uint32_t RemoteSink::getNumberOfDeviceStreams() const
 {
-    double txDelayRatio = txDelay / 100.0;
-    int samplesPerBlock = RemoteNbBytesPerBlock / sizeof(Sample);
-    double delay = m_sampleRate == 0 ? 1.0 : (127*samplesPerBlock*txDelayRatio) / m_sampleRate;
-    delay /= 128 + nbBlocksFEC;
-    m_txDelay = roundf(delay*1e6); // microseconds
-    qDebug() << "RemoteSink::setTxDelay:"
-            << " " << txDelay
-            << "% m_txDelay: " << m_txDelay << "us"
-            << " m_sampleRate: " << m_sampleRate << "S/s";
-}
-
-void RemoteSink::setNbBlocksFEC(int nbBlocksFEC)
-{
-    qDebug() << "RemoteSink::setNbBlocksFEC: nbBlocksFEC: " << nbBlocksFEC;
-    m_nbBlocksFEC = nbBlocksFEC;
+    return m_deviceAPI->getNbSourceStreams();
 }
 
 void RemoteSink::feed(const SampleVector::const_iterator& begin, const SampleVector::const_iterator& end, bool firstOfBurst)
 {
     (void) firstOfBurst;
-    SampleVector::const_iterator it = begin;
-
-    while (it != end)
-    {
-        int inSamplesIndex = it - begin;
-        int inRemainingSamples = end - it;
-
-        if (m_txBlockIndex == 0)
-        {
-            struct timeval tv;
-            RemoteMetaDataFEC metaData;
-            gettimeofday(&tv, 0);
-
-            metaData.m_centerFrequency = m_centerFrequency + m_frequencyOffset;
-            metaData.m_sampleRate = m_sampleRate;
-            metaData.m_sampleBytes = (SDR_RX_SAMP_SZ <= 16 ? 2 : 4);
-            metaData.m_sampleBits = SDR_RX_SAMP_SZ;
-            metaData.m_nbOriginalBlocks = RemoteNbOrginalBlocks;
-            metaData.m_nbFECBlocks = m_nbBlocksFEC;
-            metaData.m_tv_sec = tv.tv_sec;
-            metaData.m_tv_usec = tv.tv_usec;
-
-            if (!m_dataBlock) { // on the very first cycle there is no data block allocated
-                m_dataBlock = new RemoteDataBlock();
-            }
-
-            boost::crc_32_type crc32;
-            crc32.process_bytes(&metaData, sizeof(RemoteMetaDataFEC)-4);
-            metaData.m_crc32 = crc32.checksum();
-            RemoteSuperBlock& superBlock = m_dataBlock->m_superBlocks[0]; // first block
-            superBlock.init();
-            superBlock.m_header.m_frameIndex = m_frameCount;
-            superBlock.m_header.m_blockIndex = m_txBlockIndex;
-            superBlock.m_header.m_sampleBytes = (SDR_RX_SAMP_SZ <= 16 ? 2 : 4);
-            superBlock.m_header.m_sampleBits = SDR_RX_SAMP_SZ;
-
-            RemoteMetaDataFEC *destMeta = (RemoteMetaDataFEC *) &superBlock.m_protectedBlock;
-            *destMeta = metaData;
-
-            if (!(metaData == m_currentMetaFEC))
-            {
-                qDebug() << "RemoteSink::feed: meta: "
-                        << "|" << metaData.m_centerFrequency
-                        << ":" << metaData.m_sampleRate
-                        << ":" << (int) (metaData.m_sampleBytes & 0xF)
-                        << ":" << (int) metaData.m_sampleBits
-                        << "|" << (int) metaData.m_nbOriginalBlocks
-                        << ":" << (int) metaData.m_nbFECBlocks
-                        << "|" << metaData.m_tv_sec
-                        << ":" << metaData.m_tv_usec;
-
-                m_currentMetaFEC = metaData;
-            }
-
-            m_txBlockIndex = 1; // next Tx block with data
-        } // block zero
-
-        // handle different sample sizes...
-        int samplesPerBlock = RemoteNbBytesPerBlock / (SDR_RX_SAMP_SZ <= 16 ? 4 : 8); // two I or Q samples
-        if (m_sampleIndex + inRemainingSamples < samplesPerBlock) // there is still room in the current super block
-        {
-            memcpy((void *) &m_superBlock.m_protectedBlock.buf[m_sampleIndex*sizeof(Sample)],
-                    (const void *) &(*(begin+inSamplesIndex)),
-                    inRemainingSamples * sizeof(Sample));
-            m_sampleIndex += inRemainingSamples;
-            it = end; // all input samples are consumed
-        }
-        else // complete super block and initiate the next if not end of frame
-        {
-            memcpy((void *) &m_superBlock.m_protectedBlock.buf[m_sampleIndex*sizeof(Sample)],
-                    (const void *) &(*(begin+inSamplesIndex)),
-                    (samplesPerBlock - m_sampleIndex) * sizeof(Sample));
-            it += samplesPerBlock - m_sampleIndex;
-            m_sampleIndex = 0;
-
-            m_superBlock.m_header.m_frameIndex = m_frameCount;
-            m_superBlock.m_header.m_blockIndex = m_txBlockIndex;
-            m_superBlock.m_header.m_sampleBytes = (SDR_RX_SAMP_SZ <= 16 ? 2 : 4);
-            m_superBlock.m_header.m_sampleBits = SDR_RX_SAMP_SZ;
-            m_dataBlock->m_superBlocks[m_txBlockIndex] = m_superBlock;
-
-            if (m_txBlockIndex == RemoteNbOrginalBlocks - 1) // frame complete
-            {
-                m_dataBlockMutex.lock();
-                m_dataBlock->m_txControlBlock.m_frameIndex = m_frameCount;
-                m_dataBlock->m_txControlBlock.m_processed = false;
-                m_dataBlock->m_txControlBlock.m_complete = true;
-                m_dataBlock->m_txControlBlock.m_nbBlocksFEC = m_nbBlocksFEC;
-                m_dataBlock->m_txControlBlock.m_txDelay = m_txDelay;
-                m_dataBlock->m_txControlBlock.m_dataAddress = m_dataAddress;
-                m_dataBlock->m_txControlBlock.m_dataPort = m_dataPort;
-
-                emit dataBlockAvailable(m_dataBlock);
-                m_dataBlock = new RemoteDataBlock(); // create a new one immediately
-                m_dataBlockMutex.unlock();
-
-                m_txBlockIndex = 0;
-                m_frameCount++;
-            }
-            else
-            {
-                m_txBlockIndex++;
-            }
-        }
-    }
+    m_basebandSink->feed(begin, end);
 }
 
 void RemoteSink::start()
 {
-    qDebug("RemoteSink::start");
+    qDebug("RemoteSink::start: m_basebandSampleRate: %d", m_basebandSampleRate);
+    m_basebandSink->reset();
 
-    memset((void *) &m_currentMetaFEC, 0, sizeof(RemoteMetaDataFEC));
-
-    if (m_running) {
-        stop();
+    if (m_basebandSampleRate != 0) {
+        m_basebandSink->setBasebandSampleRate(m_basebandSampleRate);
     }
 
-    m_sinkThread = new RemoteSinkThread();
-    connect(this,
-            SIGNAL(dataBlockAvailable(RemoteDataBlock *)),
-            m_sinkThread,
-            SLOT(processDataBlock(RemoteDataBlock *)),
-            Qt::QueuedConnection);
-    m_sinkThread->startStop(true);
-    m_running = true;
+    m_thread->start();
+    m_basebandSink->startSender();
 }
 
 void RemoteSink::stop()
 {
     qDebug("RemoteSink::stop");
-
-    if (m_sinkThread != 0)
-    {
-        m_sinkThread->startStop(false);
-        m_sinkThread->deleteLater();
-        m_sinkThread = 0;
-    }
-
-    m_running = false;
+    m_basebandSink->stopSender();
+	m_thread->exit();
+	m_thread->wait();
 }
 
 bool RemoteSink::handleMessage(const Message& cmd)
 {
-    (void) cmd;
-	if (DownChannelizer::MsgChannelizerNotification::match(cmd))
-	{
-		DownChannelizer::MsgChannelizerNotification& notif = (DownChannelizer::MsgChannelizerNotification&) cmd;
-
-        qDebug() << "RemoteSink::handleMessage: MsgChannelizerNotification:"
-                << " channelSampleRate: " << notif.getSampleRate()
-                << " offsetFrequency: " << notif.getFrequencyOffset();
-
-        if (notif.getSampleRate() > 0) {
-            setSampleRate(notif.getSampleRate());
-        }
-
-        setTxDelay(m_settings.m_txDelay, m_settings.m_nbFECBlocks);
-
-		return true;
-	}
-    else if (DSPSignalNotification::match(cmd))
-    {
-        DSPSignalNotification& notif = (DSPSignalNotification&) cmd;
-
-        qDebug() << "RemoteSink::handleMessage: DSPSignalNotification:"
-                << " inputSampleRate: " << notif.getSampleRate()
-                << " centerFrequency: " << notif.getCenterFrequency();
-
-        setCenterFrequency(notif.getCenterFrequency());
-        m_deviceSampleRate = notif.getSampleRate();
-        calculateFrequencyOffset(); // This is when device sample rate changes
-
-        // Redo the channelizer stuff with the new sample rate to re-synchronize everything
-        m_channelizer->set(m_channelizer->getInputMessageQueue(),
-            m_settings.m_log2Decim,
-            m_settings.m_filterChainHash);
-
-        if (m_guiMessageQueue)
-        {
-            MsgSampleRateNotification *msg = MsgSampleRateNotification::create(notif.getSampleRate());
-            m_guiMessageQueue->push(msg);
-        }
-
-        return true;
-    }
-    else if (MsgConfigureRemoteSink::match(cmd))
+    if (MsgConfigureRemoteSink::match(cmd))
     {
         MsgConfigureRemoteSink& cfg = (MsgConfigureRemoteSink&) cmd;
         qDebug() << "RemoteSink::handleMessage: MsgConfigureRemoteSink";
@@ -311,23 +117,25 @@ bool RemoteSink::handleMessage(const Message& cmd)
 
         return true;
     }
-    else if (MsgConfigureChannelizer::match(cmd))
+    else if (DSPSignalNotification::match(cmd))
     {
-        MsgConfigureChannelizer& cfg = (MsgConfigureChannelizer&) cmd;
-        m_settings.m_log2Decim = cfg.getLog2Decim();
-        m_settings.m_filterChainHash =  cfg.getFilterChainHash();
+        DSPSignalNotification& notif = (DSPSignalNotification&) cmd;
+        m_basebandSampleRate = notif.getSampleRate();
+        qDebug() << "RemoteSink::handleMessage: DSPSignalNotification: m_basebandSampleRate:" << m_basebandSampleRate;
+        calculateFrequencyOffset();
 
-        qDebug() << "RemoteSink::handleMessage: MsgConfigureChannelizer:"
-                << " log2Decim: " << m_settings.m_log2Decim
-                << " filterChainHash: " << m_settings.m_filterChainHash;
+        // Forward to the sink
+        DSPSignalNotification* msgToBaseband = new DSPSignalNotification(notif); // make a copy
+        m_basebandSink->getInputMessageQueue()->push(msgToBaseband);
 
-        m_channelizer->set(m_channelizer->getInputMessageQueue(),
-            m_settings.m_log2Decim,
-            m_settings.m_filterChainHash);
+        // Forward to the GUI
+        if (getMessageQueueToGUI())
+        {
+            DSPSignalNotification* msgToGUI = new DSPSignalNotification(notif); // make a copy
+            getMessageQueueToGUI()->push(msgToGUI);
+        }
 
-        calculateFrequencyOffset(); // This is when decimation or filter chain changes
-
-        return true;
+	    return true;
     }
     else
     {
@@ -365,34 +173,58 @@ void RemoteSink::applySettings(const RemoteSinkSettings& settings, bool force)
             << " m_txDelay: " << settings.m_txDelay
             << " m_dataAddress: " << settings.m_dataAddress
             << " m_dataPort: " << settings.m_dataPort
+            << " m_streamIndex: " << settings.m_streamIndex
             << " force: " << force;
 
     QList<QString> reverseAPIKeys;
+    bool frequencyOffsetChange = false;
 
-    if ((m_settings.m_nbFECBlocks != settings.m_nbFECBlocks) || force)
-    {
+    if ((m_settings.m_nbFECBlocks != settings.m_nbFECBlocks) || force) {
         reverseAPIKeys.append("nbFECBlocks");
-        setNbBlocksFEC(settings.m_nbFECBlocks);
-        setTxDelay(settings.m_txDelay, settings.m_nbFECBlocks);
     }
-
-    if ((m_settings.m_txDelay != settings.m_txDelay) || force)
-    {
+    if ((m_settings.m_txDelay != settings.m_txDelay) || force) {
         reverseAPIKeys.append("txDelay");
-        setTxDelay(settings.m_txDelay, settings.m_nbFECBlocks);
     }
-
-    if ((m_settings.m_dataAddress != settings.m_dataAddress) || force)
-    {
+    if ((m_settings.m_dataAddress != settings.m_dataAddress) || force) {
         reverseAPIKeys.append("dataAddress");
-        m_dataAddress = settings.m_dataAddress;
+    }
+    if ((m_settings.m_dataPort != settings.m_dataPort) || force) {
+        reverseAPIKeys.append("dataPort");
+    }
+    if ((m_settings.m_rgbColor != settings.m_rgbColor) || force) {
+        reverseAPIKeys.append("rgbColor");
+    }
+    if ((m_settings.m_title != settings.m_title) || force) {
+        reverseAPIKeys.append("title");
     }
 
-    if ((m_settings.m_dataPort != settings.m_dataPort) || force)
+    if ((m_settings.m_log2Decim != settings.m_log2Decim) || force)
     {
-        reverseAPIKeys.append("dataPort");
-        m_dataPort = settings.m_dataPort;
+        reverseAPIKeys.append("log2Decim");
+        frequencyOffsetChange = true;
     }
+
+    if ((m_settings.m_filterChainHash != settings.m_filterChainHash) || force)
+    {
+        reverseAPIKeys.append("filterChainHash");
+        frequencyOffsetChange = true;
+    }
+
+    if (m_settings.m_streamIndex != settings.m_streamIndex)
+    {
+        if (m_deviceAPI->getSampleMIMO()) // change of stream is possible for MIMO devices only
+        {
+            m_deviceAPI->removeChannelSinkAPI(this);
+            m_deviceAPI->removeChannelSink(this, m_settings.m_streamIndex);
+            m_deviceAPI->addChannelSink(this, settings.m_streamIndex);
+            m_deviceAPI->addChannelSinkAPI(this);
+        }
+
+        reverseAPIKeys.append("streamIndex");
+    }
+
+    RemoteSinkBaseband::MsgConfigureRemoteSinkBaseband *msg = RemoteSinkBaseband::MsgConfigureRemoteSinkBaseband::create(settings, force);
+    m_basebandSink->getInputMessageQueue()->push(msg);
 
     if ((settings.m_useReverseAPI) && (reverseAPIKeys.size() != 0))
     {
@@ -405,6 +237,10 @@ void RemoteSink::applySettings(const RemoteSinkSettings& settings, bool force)
     }
 
     m_settings = settings;
+
+    if (frequencyOffsetChange) {
+        calculateFrequencyOffset();
+    }
 }
 
 void RemoteSink::validateFilterChainHash(RemoteSinkSettings& settings)
@@ -421,7 +257,7 @@ void RemoteSink::validateFilterChainHash(RemoteSinkSettings& settings)
 void RemoteSink::calculateFrequencyOffset()
 {
     double shiftFactor = HBFilterChainConverter::getShiftFactor(m_settings.m_log2Decim, m_settings.m_filterChainHash);
-    m_frequencyOffset = m_deviceSampleRate * shiftFactor;
+    m_frequencyOffset = m_basebandSampleRate * shiftFactor;
 }
 
 int RemoteSink::webapiSettingsGet(
@@ -443,7 +279,29 @@ int RemoteSink::webapiSettingsPutPatch(
 {
     (void) errorMessage;
     RemoteSinkSettings settings = m_settings;
+    webapiUpdateChannelSettings(settings, channelSettingsKeys, response);
 
+    MsgConfigureRemoteSink *msg = MsgConfigureRemoteSink::create(settings, force);
+    m_inputMessageQueue.push(msg);
+
+    qDebug("RemoteSink::webapiSettingsPutPatch: forward to GUI: %p", m_guiMessageQueue);
+
+    if (m_guiMessageQueue) // forward to GUI if any
+    {
+        MsgConfigureRemoteSink *msgToGUI = MsgConfigureRemoteSink::create(settings, force);
+        m_guiMessageQueue->push(msgToGUI);
+    }
+
+    webapiFormatChannelSettings(response, settings);
+
+    return 200;
+}
+
+void RemoteSink::webapiUpdateChannelSettings(
+        RemoteSinkSettings& settings,
+        const QStringList& channelSettingsKeys,
+        SWGSDRangel::SWGChannelSettings& response)
+{
     if (channelSettingsKeys.contains("nbFECBlocks"))
     {
         int nbFECBlocks = response.getRemoteSinkSettings()->getNbFecBlocks();
@@ -497,6 +355,10 @@ int RemoteSink::webapiSettingsPutPatch(
         validateFilterChainHash(settings);
     }
 
+    if (channelSettingsKeys.contains("streamIndex")) {
+        settings.m_streamIndex = response.getRemoteSinkSettings()->getStreamIndex();
+    }
+
     if (channelSettingsKeys.contains("useReverseAPI")) {
         settings.m_useReverseAPI = response.getRemoteSinkSettings()->getUseReverseApi() != 0;
     }
@@ -512,26 +374,6 @@ int RemoteSink::webapiSettingsPutPatch(
     if (channelSettingsKeys.contains("reverseAPIChannelIndex")) {
         settings.m_reverseAPIChannelIndex = response.getRemoteSinkSettings()->getReverseApiChannelIndex();
     }
-
-    MsgConfigureRemoteSink *msg = MsgConfigureRemoteSink::create(settings, force);
-    m_inputMessageQueue.push(msg);
-
-    if ((settings.m_log2Decim != m_settings.m_log2Decim) || (settings.m_filterChainHash != m_settings.m_filterChainHash) || force)
-    {
-        MsgConfigureChannelizer *msg = MsgConfigureChannelizer::create(settings.m_log2Decim, settings.m_filterChainHash);
-        m_inputMessageQueue.push(msg);
-    }
-
-    qDebug("RemoteSink::webapiSettingsPutPatch: forward to GUI: %p", m_guiMessageQueue);
-    if (m_guiMessageQueue) // forward to GUI if any
-    {
-        MsgConfigureRemoteSink *msgToGUI = MsgConfigureRemoteSink::create(settings, force);
-        m_guiMessageQueue->push(msgToGUI);
-    }
-
-    webapiFormatChannelSettings(response, settings);
-
-    return 200;
 }
 
 void RemoteSink::webapiFormatChannelSettings(SWGSDRangel::SWGChannelSettings& response, const RemoteSinkSettings& settings)
@@ -556,6 +398,7 @@ void RemoteSink::webapiFormatChannelSettings(SWGSDRangel::SWGChannelSettings& re
 
     response.getRemoteSinkSettings()->setLog2Decim(settings.m_log2Decim);
     response.getRemoteSinkSettings()->setFilterChainHash(settings.m_filterChainHash);
+    response.getRemoteSinkSettings()->setStreamIndex(settings.m_streamIndex);
     response.getRemoteSinkSettings()->setUseReverseApi(settings.m_useReverseAPI ? 1 : 0);
 
     if (response.getRemoteSinkSettings()->getReverseApiAddress()) {
@@ -606,6 +449,9 @@ void RemoteSink::webapiReverseSendSettings(QList<QString>& channelSettingsKeys, 
     if (channelSettingsKeys.contains("filterChainHash") || force) {
         swgRemoteSinkSettings->setFilterChainHash(settings.m_filterChainHash);
     }
+    if (channelSettingsKeys.contains("streamIndex") || force) {
+        swgRemoteSinkSettings->setStreamIndex(settings.m_streamIndex);
+    }
 
     QString channelSettingsURL = QString("http://%1:%2/sdrangel/deviceset/%3/channel/%4/settings")
             .arg(settings.m_reverseAPIAddress)
@@ -615,13 +461,14 @@ void RemoteSink::webapiReverseSendSettings(QList<QString>& channelSettingsKeys, 
     m_networkRequest.setUrl(QUrl(channelSettingsURL));
     m_networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-    QBuffer *buffer=new QBuffer();
+    QBuffer *buffer = new QBuffer();
     buffer->open((QBuffer::ReadWrite));
     buffer->write(swgChannelSettings->asJson().toUtf8());
     buffer->seek(0);
 
     // Always use PATCH to avoid passing reverse API settings
-    m_networkManager->sendCustomRequest(m_networkRequest, "PATCH", buffer);
+    QNetworkReply *reply = m_networkManager->sendCustomRequest(m_networkRequest, "PATCH", buffer);
+    buffer->setParent(reply);
 
     delete swgChannelSettings;
 }
@@ -636,10 +483,13 @@ void RemoteSink::networkManagerFinished(QNetworkReply *reply)
                 << " error(" << (int) replyError
                 << "): " << replyError
                 << ": " << reply->errorString();
-        return;
+    }
+    else
+    {
+        QString answer = reply->readAll();
+        answer.chop(1); // remove last \n
+        qDebug("RemoteSink::networkManagerFinished: reply:\n%s", answer.toStdString().c_str());
     }
 
-    QString answer = reply->readAll();
-    answer.chop(1); // remove last \n
-    qDebug("RemoteSink::networkManagerFinished: reply:\n%s", answer.toStdString().c_str());
+    reply->deleteLater();
 }

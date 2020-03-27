@@ -23,6 +23,7 @@
 #include "util/simpleserializer.h"
 #include "util/db.h"
 #include "gui/basicchannelsettingsdialog.h"
+#include "gui/devicestreamselectiondialog.h"
 #include "plugin/pluginapi.h"
 #include "mainwindow.h"
 
@@ -147,7 +148,7 @@ UDPSourceGUI::UDPSourceGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, Baseb
             64, // FFT size
             10, // overlapping %
             0,  // number of averaging samples
-            0,  // no averaging
+            SpectrumVis::AvgModeNone,  // no averaging
             FFTWindow::BlackmanHarris,
             false); // logarithmic scale
 
@@ -159,6 +160,7 @@ UDPSourceGUI::UDPSourceGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, Baseb
     m_channelMarker.setCenterFrequency(0);
     m_channelMarker.setColor(m_settings.m_rgbColor);
     m_channelMarker.setTitle("UDP Sample Sink");
+    m_channelMarker.setSourceOrSinkStream(false);
     m_channelMarker.blockSignals(false);
     m_channelMarker.setVisible(true); // activate signal on the last setting only
 
@@ -171,7 +173,7 @@ UDPSourceGUI::UDPSourceGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, Baseb
     ui->spectrumGUI->setBuddies(m_spectrumVis->getInputMessageQueue(), m_spectrumVis, ui->glSpectrum);
 
     connect(getInputMessageQueue(), SIGNAL(messageEnqueued()), this, SLOT(handleSourceMessages()));
-    connect(m_udpSource, SIGNAL(levelChanged(qreal, qreal, int)), ui->volumeMeter, SLOT(levelChanged(qreal, qreal, int)));
+    m_udpSource->setLevelMeter(ui->volumeMeter);
 
     displaySettings();
     applySettings(true);
@@ -217,6 +219,7 @@ void UDPSourceGUI::displaySettings()
 
     setTitleColor(m_settings.m_rgbColor);
     this->setWindowTitle(m_channelMarker.getTitle());
+    displayStreamIndex();
 
     blockApplySettings(true);
 
@@ -257,6 +260,15 @@ void UDPSourceGUI::displaySettings()
     ui->applyBtn->setStyleSheet("QPushButton { background:rgb(79,79,79); }");
 
     blockApplySettings(false);
+}
+
+void UDPSourceGUI::displayStreamIndex()
+{
+    if (m_deviceUISet->m_deviceMIMOEngine) {
+        setStreamIndicator(tr("%1").arg(m_settings.m_streamIndex));
+    } else {
+        setStreamIndicator("S"); // single channel indicator
+    }
 }
 
 void UDPSourceGUI::channelMarkerChangedByCursor()
@@ -494,6 +506,20 @@ void UDPSourceGUI::onMenuDialogCalled(const QPoint &p)
         setWindowTitle(m_channelMarker.getTitle());
         setTitleColor(m_settings.m_rgbColor);
 
+        applySettings();
+    }
+    else if ((m_contextMenuType == ContextMenuStreamSettings) && (m_deviceUISet->m_deviceMIMOEngine))
+    {
+        DeviceStreamSelectionDialog dialog(this);
+        dialog.setNumberOfStreams(m_udpSource->getNumberOfDeviceStreams());
+        dialog.setStreamIndex(m_settings.m_streamIndex);
+        dialog.move(p);
+        dialog.exec();
+
+        m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+        m_channelMarker.clearStreamIndexes();
+        m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+        displayStreamIndex();
         applySettings();
     }
 

@@ -15,7 +15,7 @@ info:
 
       ---
 
-  version: "4.8.0"
+  version: "4.14.0"
   title: SDRangel
   contact:
     url: "https://github.com/f4exb/sdrangel"
@@ -70,6 +70,70 @@ paths:
           description: Unsupported (GUI instance)
           schema:
             $ref: "#/definitions/ErrorResponse"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+
+  /sdrangel/config:
+    x-swagger-router-controller: instance
+    get:
+      description: Get the Preferences, Presets and Commands of the MainSettings saved by Qt. Supports config backup.
+      operationId: instanceConfigGet
+      tags:
+        - Instance
+      responses:
+        "200":
+          description: Success
+          schema:
+            # a pointer to a definition
+            $ref: "#/definitions/InstanceConfigResponse"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+    put:
+      description: Replace the Preferences, Working preset, Presets and Commands of the MainSettings object with the contents of the payload. Supports config restore.
+      operationId: instanceConfigPut
+      tags:
+        - Instance
+      consumes:
+        - application/json
+      parameters:
+        - name: body
+          in: body
+          description: Config information
+          required: true
+          schema:
+            $ref: "#/definitions/InstanceConfigResponse"
+      responses:
+        "200":
+          description: Success
+          schema:
+            $ref: "#/definitions/SuccessResponse"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+    patch:
+      description: Replace the Preferences, Working preset, Presets and Commands of the MainSettings object with the contents of the payload. Presets and Commands if available in the payload are added. Channels in the working preset are added. Devices in the working preset are patched or added (upsert).
+      operationId: instanceConfigPatch
+      tags:
+        - Instance
+      consumes:
+        - application/json
+      parameters:
+        - name: body
+          in: body
+          description: Config information
+          required: true
+          schema:
+            $ref: "#/definitions/InstanceConfigResponse"
+      responses:
+        "200":
+          description: Success
+          schema:
+            $ref: "#/definitions/SuccessResponse"
         "500":
           $ref: "#/responses/Response_500"
         "501":
@@ -373,38 +437,217 @@ paths:
         "501":
           $ref: "#/responses/Response_501"
 
-  /sdrangel/dvserial:
+  /sdrangel/ambe/serial:
     x-swagger-router-controller: instance
     get:
-      description: Get DV serial processing parameters for AMBE frames decoding in digital voice modes
-      operationId: instanceDVSerialGet
+      description: get a list of available DV serial devices
+      operationId: instanceAMBESerialGet
       tags:
         - Instance
       responses:
         "200":
-          description: On success return list of devices or empty list if unset
+          description: On success return list of device paths possibly empty
           schema:
-            $ref: "#/definitions/DVSeralDevices"
+            $ref: "#/definitions/DVSerialDevices"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+
+  /sdrangel/ambe/devices:
+    x-swagger-router-controller: instance
+    get:
+      description: get the list of AMBE devices (serial or address) used for AMBE frames decoding in digital voice modes
+      operationId: InstanceAMBEDevicesGet
+      tags:
+        - Instance
+      responses:
+        "200":
+          description: On success return list of devices possibly empty
+          schema:
+            $ref: "#/definitions/AMBEDevices"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+    put:
+      description: Replace the list of active devices
+      operationId: InstanceAMBEDevicesPut
+      tags:
+        - Instance
+      consumes:
+        - application/json
+      parameters:
+        - name: body
+          in: body
+          description: List of AMBE devices (serial or address)
+          required: true
+          schema:
+            $ref: "#/definitions/AMBEDevices"
+      responses:
+        "200":
+          description: On success return list of devices
+          schema:
+            $ref: "#/definitions/AMBEDevices"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+    delete:
+      description: Emtpy the active devices thus effectively closing down AMBE devices support
+      operationId: InstanceAMBEDevicesDelete
+      tags:
+        - Instance
+      responses:
+        "200":
+          description: Success.
+          schema:
+            $ref: "#/definitions/SuccessResponse"
         "500":
           $ref: "#/responses/Response_500"
         "501":
           $ref: "#/responses/Response_501"
     patch:
-      description: Set or reset DV serial processing for AMBE frames decoding in digital voice modes
-      operationId: instanceDVSerialPatch
+      description: Add and/or delete devices to/from the active list
+      operationId: InstanceAMBEDevicesPatch
+      tags:
+        - Instance
+      consumes:
+        - application/json
+      parameters:
+        - name: body
+          in: body
+          description: List of AMBE devices (serial or address)
+          required: true
+          schema:
+            $ref: "#/definitions/AMBEDevices"
+      responses:
+        "200":
+          description: On success return list of devices
+          schema:
+            $ref: "#/definitions/AMBEDevices"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+
+  /sdrangel/limerfe/serial:
+    x-swagger-router-controller: instance
+    get:
+      description: get a list of available serial interfaces to LimeRFE device
+      operationId: instanceLimeRFESerialGet
+      tags:
+        - Instance
+      responses:
+        "200":
+          description: On success return list of device paths possibly empty
+          schema:
+            $ref: "#/definitions/LimeRFEDevices"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+
+  /sdrangel/limerfe/config:
+    x-swagger-router-controller: instance
+    get:
+      description: get LimeRFE configuration
+      operationId: instanceLimeRFEConfigGet
       tags:
         - Instance
       parameters:
-        - name: dvserial
+        - name: serial
           in: query
-          description: Set to non zero (true) to set DV serial processing
-          required: false
-          type: integer
+          description: device serial path
+          required: true
+          type: string
       responses:
         "200":
-          description: On success return list of devices or empty list if unset
+          description: On success return configuration information for the given device in input
           schema:
-            $ref: "#/definitions/DVSeralDevices"
+            $ref: "http://localhost:8081/api/swagger/include/LimeRFE.yaml#/LimeRFESettings"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+    put:
+      description: replace LimeRFE configuration
+      operationId: instanceLimeRFEConfigPut
+      tags:
+        - Instance
+      consumes:
+        - application/json
+      parameters:
+        - name: body
+          in: body
+          description: Give device serial path in devicePath field. To switch Rx and/or Tx on or off use the run API.
+          required: true
+          schema:
+            $ref: "http://localhost:8081/api/swagger/include/LimeRFE.yaml#/LimeRFESettings"
+      responses:
+        "200":
+          description: Success
+          schema:
+            $ref: "#/definitions/SuccessResponse"
+        "400":
+          description: Error
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+
+  /sdrangel/limerfe/run:
+    x-swagger-router-controller: instance
+    put:
+      description: set Rx and Tx on or off
+      operationId: instanceLimeRFERunPut
+      tags:
+        - Instance
+      parameters:
+        - name: body
+          in: body
+          description: Give device serial path in devicePath field and run status in rxOn and txOn
+          required: true
+          schema:
+            $ref: "http://localhost:8081/api/swagger/include/LimeRFE.yaml#/LimeRFESettings"
+      responses:
+        "200":
+          description: Success
+          schema:
+            $ref: "#/definitions/SuccessResponse"
+        "400":
+          description: Error
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+
+  /sdrangel/limerfe/power:
+    x-swagger-router-controller: instance
+    get:
+      description: get forward and reflected relative powers in centi-Bels
+      operationId: instanceLimeRFEPowerGet
+      tags:
+        - Instance
+      parameters:
+        - name: serial
+          in: query
+          description: device serial path
+          required: true
+          type: string
+      responses:
+        "200":
+          description: On success return forward and reflected powers in centi-Bels
+          schema:
+            $ref: "http://localhost:8081/api/swagger/include/LimeRFE.yaml#/LimeRFEPower"
+        "400":
+          description: Error
+          schema:
+            $ref: "#/definitions/ErrorResponse"
         "500":
           $ref: "#/responses/Response_500"
         "501":
@@ -793,7 +1036,7 @@ paths:
         "200":
           description: On success returns current settings values
           schema:
-            $ref: "#/definitions/DeviceSettings"
+            $ref: "http://localhost:8081/api/swagger/include/DeviceSettings.yaml#/DeviceSettings"
         "404":
           description: Invalid device set index or device not found
           schema:
@@ -818,12 +1061,12 @@ paths:
           description: Device settings to apply
           required: true
           schema:
-            $ref: "#/definitions/DeviceSettings"
+            $ref: "http://localhost:8081/api/swagger/include/DeviceSettings.yaml#/DeviceSettings"
       responses:
         "200":
           description: On success returns new settings values
           schema:
-            $ref: "#/definitions/DeviceSettings"
+            $ref: "http://localhost:8081/api/swagger/include/DeviceSettings.yaml#/DeviceSettings"
         "404":
           description: Invalid device set index or device not found
           schema:
@@ -848,12 +1091,12 @@ paths:
           description: Device settings to apply
           required: true
           schema:
-            $ref: "#/definitions/DeviceSettings"
+            $ref: "http://localhost:8081/api/swagger/include/DeviceSettings.yaml#/DeviceSettings"
       responses:
         "200":
           description: On success returns new settings values
           schema:
-            $ref: "#/definitions/DeviceSettings"
+            $ref: "http://localhost:8081/api/swagger/include/DeviceSettings.yaml#/DeviceSettings"
         "404":
           description: Invalid device set index or device not found
           schema:
@@ -866,7 +1109,7 @@ paths:
   /sdrangel/deviceset/{deviceSetIndex}/device/run:
     x-swagger-router-controller: deviceset
     get:
-      description: get device rune status
+      description: get device run status for a single subsystem device (Rx or Tx)
       operationId: devicesetDeviceRunGet
       tags:
         - DeviceSet
@@ -894,7 +1137,7 @@ paths:
         "501":
           $ref: "#/responses/Response_501"
     post:
-      description: start device
+      description: start device for a single subsystem device (Rx or Tx)
       operationId: devicesetDeviceRunPost
       tags:
         - DeviceSet
@@ -909,7 +1152,7 @@ paths:
           description: Originator information in the reverse API case
           required: false
           schema:
-            $ref: "#/definitions/DeviceSettings"
+            $ref: "http://localhost:8081/api/swagger/include/DeviceSettings.yaml#/DeviceSettings"
       responses:
         "200":
           description: On success return state before change
@@ -928,7 +1171,7 @@ paths:
         "501":
           $ref: "#/responses/Response_501"
     delete:
-      description: stop device
+      description: stop device for a single subsystem device (Rx or Tx)
       operationId: devicesetDeviceRunDelete
       tags:
         - DeviceSet
@@ -943,7 +1186,7 @@ paths:
           description: Originator information in the reverse API case
           required: false
           schema:
-            $ref: "#/definitions/DeviceSettings"
+            $ref: "http://localhost:8081/api/swagger/include/DeviceSettings.yaml#/DeviceSettings"
       responses:
         "200":
           description: On success return state before change
@@ -955,6 +1198,120 @@ paths:
             $ref: "#/definitions/ErrorResponse"
         "404":
           description: Device not found
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+
+  /sdrangel/deviceset/{deviceSetIndex}/subdevice/{subsystemIndex}/run:
+    x-swagger-router-controller: deviceset
+    get:
+      description: get device run status for a multi-subsystem device (Rx/Tx combination i.e. MIMO)
+      operationId: devicesetDeviceSubsystemRunGet
+      tags:
+        - DeviceSet
+      parameters:
+        - in: path
+          name: deviceSetIndex
+          type: integer
+          required: true
+          description: Index of device set in the device set list
+        - in: path
+          name: subsystemIndex
+          type: integer
+          required: true
+          description: Index of subsystem (0 for Rx, 1 for Tx)
+      responses:
+        "200":
+          description: On success return current state
+          schema:
+            $ref: "#/definitions/DeviceState"
+        "400":
+          description: Invalid device set index
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        "404":
+          description: Device or subsystem not found
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+    post:
+      description: start device for a multi-subsystem device (Rx/Tx combination i.e. MIMO)
+      operationId: devicesetDeviceSubsystemRunPost
+      tags:
+        - DeviceSet
+      parameters:
+        - in: path
+          name: deviceSetIndex
+          type: integer
+          required: true
+          description: Index of device set in the device set list
+        - in: path
+          name: subsystemIndex
+          type: integer
+          required: true
+          description: Index of subsystem (0 for Rx, 1 for Tx)
+        - name: body
+          in: body
+          description: Originator information in the reverse API case
+          required: false
+          schema:
+            $ref: "http://localhost:8081/api/swagger/include/DeviceSettings.yaml#/DeviceSettings"
+      responses:
+        "200":
+          description: On success return state before change
+          schema:
+            $ref: "#/definitions/DeviceState"
+        "400":
+          description: Invalid device set index
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        "404":
+          description: Device or subsystem not found
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+    delete:
+      description: stop device for a multi-subsystem device (Rx/Tx combination i.e. MIMO)
+      operationId: devicesetDeviceSubsystemRunDelete
+      tags:
+        - DeviceSet
+      parameters:
+        - in: path
+          name: deviceSetIndex
+          type: integer
+          required: true
+          description: Index of device set in the device set list
+        - in: path
+          name: subsystemIndex
+          type: integer
+          required: true
+          description: Index of subsystem (0 for Rx, 1 for Tx)
+        - name: body
+          in: body
+          description: Originator information in the reverse API case
+          required: false
+          schema:
+            $ref: "http://localhost:8081/api/swagger/include/DeviceSettings.yaml#/DeviceSettings"
+      responses:
+        "200":
+          description: On success return state before change
+          schema:
+            $ref: "#/definitions/DeviceState"
+        "400":
+          description: Invalid device set index
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        "404":
+          description: Device or subsystem not found
           schema:
             $ref: "#/definitions/ErrorResponse"
         "500":
@@ -1025,6 +1382,42 @@ paths:
         "501":
           $ref: "#/responses/Response_501"
 
+  /sdrangel/deviceset/{deviceSetIndex}/device/actions:
+    x-swagger-router-controller: deviceset
+    post:
+      description: post an action on a device
+      operationId: devicesetDeviceActionsPost
+      tags:
+        - DeviceSet
+      parameters:
+        - in: path
+          name: deviceSetIndex
+          type: integer
+          required: true
+          description: Index of device set in the device set list
+        - name: body
+          in: body
+          description: Action(s) to apply to the device
+          required: true
+          schema:
+            $ref: "http://localhost:8081/api/swagger/include/DeviceActions.yaml#/DeviceActions"
+      responses:
+        "202":
+          description: Message to perform action was sent successfully
+          schema:
+            $ref: "#/definitions/SuccessResponse"
+        "400":
+          description: Invalid device set index
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        "404":
+          description: Device not found
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
 
   /sdrangel/deviceset/{deviceSetIndex}/channel:
     x-swagger-router-controller: deviceset
@@ -1044,7 +1437,7 @@ paths:
           description: Channel identification (no settings data)
           required: true
           schema:
-            $ref: "#/definitions/ChannelSettings"
+            $ref: "http://localhost:8081/api/swagger/include/ChannelSettings.yaml#/ChannelSettings"
       responses:
         "202":
           description: Message to add a channel was sent successfully
@@ -1084,7 +1477,7 @@ paths:
         "200":
           description: On success return deleted channel settings
           schema:
-            $ref: "#/definitions/ChannelSettings"
+            $ref: "http://localhost:8081/api/swagger/include/ChannelSettings.yaml#/ChannelSettings"
         "400":
           description: Invalid device set or channel index
           schema:
@@ -1120,7 +1513,7 @@ paths:
         "200":
           description: On success return channel settings
           schema:
-            $ref: "#/definitions/ChannelSettings"
+            $ref: "http://localhost:8081/api/swagger/include/ChannelSettings.yaml#/ChannelSettings"
         "400":
           description: Invalid device set or channel index
           schema:
@@ -1154,12 +1547,12 @@ paths:
           description: Channel settings to apply
           required: true
           schema:
-            $ref: "#/definitions/ChannelSettings"
+            $ref: "http://localhost:8081/api/swagger/include/ChannelSettings.yaml#/ChannelSettings"
       responses:
         "200":
           description: On success return channel new settings
           schema:
-            $ref: "#/definitions/ChannelSettings"
+            $ref: "http://localhost:8081/api/swagger/include/ChannelSettings.yaml#/ChannelSettings"
         "400":
           description: Invalid device set or channel index
           schema:
@@ -1193,12 +1586,12 @@ paths:
           description: Channel settings to apply
           required: true
           schema:
-            $ref: "#/definitions/ChannelSettings"
+            $ref: "http://localhost:8081/api/swagger/include/ChannelSettings.yaml#/ChannelSettings"
       responses:
         "200":
           description: On success return channel new settings
           schema:
-            $ref: "#/definitions/ChannelSettings"
+            $ref: "http://localhost:8081/api/swagger/include/ChannelSettings.yaml#/ChannelSettings"
         "400":
           description: Invalid device set or channel index
           schema:
@@ -1235,6 +1628,48 @@ paths:
           description: On success return channel report
           schema:
             $ref: "#/definitions/ChannelReport"
+        "400":
+          description: Invalid device set or channel index
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        "404":
+          description: Device or channel not found
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        "500":
+          $ref: "#/responses/Response_500"
+        "501":
+          $ref: "#/responses/Response_501"
+
+  /sdrangel/deviceset/{deviceSetIndex}/channel/{channelIndex}/actions:
+    x-swagger-router-controller: deviceset
+    post:
+      description: post an action or actions on a channel
+      operationId: devicesetChannelActionsPost
+      tags:
+        - DeviceSet
+      parameters:
+        - in: path
+          name: deviceSetIndex
+          type: integer
+          required: true
+          description: Index of device set in the device set list
+        - in: path
+          name: channelIndex
+          type: integer
+          required: true
+          description: Index of the channel in the channels list for this device set
+        - name: body
+          in: body
+          description: Action(s) to apply to the channel
+          required: true
+          schema:
+            $ref: "http://localhost:8081/api/swagger/include/ChannelActions.yaml#/ChannelActions"
+      responses:
+        "202":
+          description: Message to perform action was sent successfully
+          schema:
+            $ref: "#/definitions/SuccessResponse"
         "400":
           description: Invalid device set or channel index
           schema:
@@ -1295,6 +1730,22 @@ definitions:
         $ref: "#/definitions/LoggingInfo"
       devicesetlist:
         $ref: "#/definitions/DeviceSetList"
+
+  InstanceConfigResponse:
+    description: Preferences, Presets and Commands of the MainSettings saved by Qt
+    properties:
+      preferences:
+        $ref: "http://localhost:8081/api/swagger/include/Preferences.yaml#/Preferences"
+      workingPreset:
+        $ref: "http://localhost:8081/api/swagger/include/Preset.yaml#/Preset"
+      presets:
+        type: array
+        items:
+          $ref: "http://localhost:8081/api/swagger/include/Preset.yaml#/Preset"
+      commands:
+        type: array
+        items:
+          $ref: "http://localhost:8081/api/swagger/include/Command.yaml#/Command"
 
   InstanceDevicesResponse:
     description: "Summarized information about logical devices from hardware devices attached to this SDRangel instance"
@@ -1442,11 +1893,9 @@ definitions:
 
   DeviceState:
     description: "Device running state"
-    required:
-      - state
     properties:
       state:
-        description: "State: notStarted, idle, ready, running, error"
+        description: "Unique state: notStarted, idle, ready, running, error"
         type: string
 
   SamplingDevice:
@@ -1459,7 +1908,6 @@ definitions:
       - serial
       - centerFrequency
       - bandwidth
-      - state
     properties:
       index:
         description: "Index in the list of device sets opened in this instance"
@@ -1490,7 +1938,13 @@ definitions:
         description: "Bandwidth in Hz or complex S/s of baseband"
         type: integer
       state:
-        description: "State: notStarted, idle, ready, running, error"
+        description: "Single subsystem state: notStarted, idle, ready, running, error"
+        type: string
+      stateRx:
+        description: "Rx subsystem state (MIMO): notStarted, idle, ready, running, error"
+        type: string
+      stateTx:
+        description: "Tx subsystem state (MIMO): notStarted, idle, ready, running, error"
         type: string
 
   Channel:
@@ -1502,6 +1956,9 @@ definitions:
       - title
       - deltaFrequency
     properties:
+      direction:
+        description: 0 for Rx only, 1 for Tx only or 2 for any direction (MIMO)
+        type: integer
       index:
         description: "Index in the list of channels"
         type: integer
@@ -1637,7 +2094,7 @@ definitions:
         type: number
         format: float
 
-  DVSeralDevices:
+  DVSerialDevices:
     description: "List of DV serial devices available in the system"
     required:
       - nbDevices
@@ -1656,6 +2113,51 @@ definitions:
     properties:
       deviceName:
         description: "Name of the serial device in the system"
+        type: string
+
+  AMBEDevices:
+    description: "List of AMBE devices (serial or server address)"
+    required:
+      - nbDevices
+    properties:
+      nbDevices:
+        description: "Number of DV serial devices"
+        type: integer
+      ambeDevices:
+        description: "List of AMBE devices"
+        type: array
+        items:
+          $ref: "#/definitions/AMBEDevice"
+
+  AMBEDevice:
+    description: "AMBE devices active in the system"
+    properties:
+      deviceRef:
+        description: "Serial device name or server address"
+        type: string
+      delete:
+        description: "1 if device is to be removed from active list"
+        type: integer
+
+  LimeRFEDevices:
+    description: "List of LimeRFE devices (serial or server address)"
+    required:
+      - nbDevices
+    properties:
+      nbDevices:
+        description: "Number of LimeRFE serial interfaces"
+        type: integer
+      limeRFEDevices:
+        description: "List of LimeRFE devices"
+        type: array
+        items:
+          $ref: "#/definitions/LimeRFEDevice"
+
+  LimeRFEDevice:
+    description: "LimeRFE device active in the system"
+    properties:
+      deviceRef:
+        description: "Serial device name or server address"
         type: string
 
   Presets:
@@ -1764,78 +2266,6 @@ definitions:
       preset:
         $ref: "#/definitions/PresetIdentifier"
 
-  DeviceSettings:
-    description: Base device settings. Only the device settings corresponding to the device specified in the deviceHwType field is or should be present.
-    discriminator: deviceHwType
-    required:
-      - deviceHwType
-      - direction
-    properties:
-      deviceHwType:
-        description: Device hardware type code
-        type: string
-      direction:
-        description: 0 for Rx only, 1 for Tx only or 2 for any number and direction (default 0)
-        type: integer
-      originatorIndex:
-        description: Optional for reverse API. This is the device set index from where the message comes from.
-        type: integer
-      airspySettings:
-        $ref: "http://localhost:8081/api/swagger/include/Airspy.yaml#/AirspySettings"
-      airspyHFSettings:
-        $ref: "http://localhost:8081/api/swagger/include/AirspyHF.yaml#/AirspyHFSettings"
-      bladeRF1InputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/BladeRF1.yaml#/BladeRF1InputSettings"
-      bladeRF2InputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/BladeRF2.yaml#/BladeRF2InputSettings"
-      bladeRF1OutputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/BladeRF1.yaml#/BladeRF1OutputSettings"
-      bladeRF2OutputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/BladeRF2.yaml#/BladeRF2OutputSettings"
-      fcdProSettings:
-        $ref: "http://localhost:8081/api/swagger/include/FCDPro.yaml#/FCDProSettings"
-      fcdProPlusSettings:
-        $ref: "http://localhost:8081/api/swagger/include/FCDProPlus.yaml#/FCDProPlusSettings"
-      fileSourceSettings:
-        $ref: "http://localhost:8081/api/swagger/include/FileSource.yaml#/FileSourceSettings"
-      hackRFInputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/HackRF.yaml#/HackRFInputSettings"
-      hackRFOutputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/HackRF.yaml#/HackRFOutputSettings"
-      limeSdrInputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/LimeSdr.yaml#/LimeSdrInputSettings"
-      limeSdrOutputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/LimeSdr.yaml#/LimeSdrOutputSettings"
-      localInputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/LocalInput.yaml#/LocalInputSettings"
-      localOutputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/LocalOutput.yaml#/LocalOutputSettings"
-      perseusSettings:
-        $ref: "http://localhost:8081/api/swagger/include/Perseus.yaml#/PerseusSettings"
-      plutoSdrInputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/PlutoSdr.yaml#/PlutoSdrInputSettings"
-      plutoSdrOutputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/PlutoSdr.yaml#/PlutoSdrOutputSettings"
-      rtlSdrSettings:
-        $ref: "http://localhost:8081/api/swagger/include/RtlSdr.yaml#/RtlSdrSettings"
-      remoteOutputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/RemoteOutput.yaml#/RemoteOutputSettings"
-      remoteInputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/RemoteInput.yaml#/RemoteInputSettings"
-      sdrPlaySettings:
-        $ref: "http://localhost:8081/api/swagger/include/SDRPlay.yaml#/SDRPlaySettings"
-      soapySDRInputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/SoapySDR.yaml#/SoapySDRInputSettings"
-      soapySDROutputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/SoapySDR.yaml#/SoapySDROutputSettings"
-      testSourceSettings:
-        $ref: "http://localhost:8081/api/swagger/include/TestSource.yaml#/TestSourceSettings"
-      xtrxInputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/Xtrx.yaml#/XtrxInputSettings"
-      xtrxOutputSettings:
-        $ref: "http://localhost:8081/api/swagger/include/Xtrx.yaml#/XtrxOutputSettings"
-
-
   DeviceReport:
     description: Base device report. Only the device report corresponding to the device specified in the deviceHwType is or should be present.
     discriminator: deviceHwType
@@ -1857,10 +2287,12 @@ definitions:
         $ref: "http://localhost:8081/api/swagger/include/BladeRF2.yaml#/BladeRF2InputReport"
       bladeRF2OutputReport:
         $ref: "http://localhost:8081/api/swagger/include/BladeRF2.yaml#/BladeRF2OutputReport"
-      fileSourceReport:
-        $ref: "http://localhost:8081/api/swagger/include/FileSource.yaml#/FileSourceReport"
+      fileInputReport:
+        $ref: "http://localhost:8081/api/swagger/include/FileInput.yaml#/FileInputReport"
       limeSdrInputReport:
         $ref: "http://localhost:8081/api/swagger/include/LimeSdr.yaml#/LimeSdrInputReport"
+      kiwiSDRReport:
+        $ref: "http://localhost:8081/api/swagger/include/KiwiSDR.yaml#/KiwiSDRReport"
       limeSdrOutputReport:
         $ref: "http://localhost:8081/api/swagger/include/LimeSdr.yaml#/LimeSdrOutputReport"
       localInputReport:
@@ -1890,66 +2322,6 @@ definitions:
       xtrxOutputReport:
         $ref: "http://localhost:8081/api/swagger/include/Xtrx.yaml#/XtrxOutputReport"
 
-  ChannelSettings:
-    description: Base channel settings. Only the channel settings corresponding to the channel specified in the channelType field is or should be present.
-    discriminator: channelType
-    required:
-      - channelType
-      - direction
-    properties:
-      channelType:
-        description: Channel type code
-        type: string
-      direction:
-        description: 0 for Rx only, 1 for Tx only or 2 for any number and direction (default 0)
-        type: integer
-      originatorDeviceSetIndex:
-        description: Optional for reverse API. This is the device set index from where the message comes from.
-        type: integer
-      originatorChannelIndex:
-        description: Optional for reverse API. This is the channel index from where the message comes from.
-        type: integer
-      AMDemodSettings:
-        $ref: "http://localhost:8081/api/swagger/include/AMDemod.yaml#/AMDemodSettings"
-      AMModSettings:
-        $ref: "http://localhost:8081/api/swagger/include/AMMod.yaml#/AMModSettings"
-      ATVModSettings:
-        $ref: "http://localhost:8081/api/swagger/include/ATVMod.yaml#/ATVModSettings"
-      BFMDemodSettings:
-        $ref: "http://localhost:8081/api/swagger/include/BFMDemod.yaml#/BFMDemodSettings"
-      DSDDemodSettings:
-        $ref: "http://localhost:8081/api/swagger/include/DSDDemod.yaml#/DSDDemodSettings"
-      FreeDVDemodSettings:
-        $ref: "http://localhost:8081/api/swagger/include/FreeDVDemod.yaml#/FreeDVDemodSettings"
-      FreeDVModSettings:
-        $ref: "http://localhost:8081/api/swagger/include/FreeDVMod.yaml#/FreeDVModSettings"
-      FreqTrackerSettings:
-        $ref: "http://localhost:8081/api/swagger/include/FreqTracker.yaml#/FreqTrackerSettings"
-      NFMDemodSettings:
-        $ref: "http://localhost:8081/api/swagger/include/NFMDemod.yaml#/NFMDemodSettings"
-      NFMModSettings:
-        $ref: "http://localhost:8081/api/swagger/include/NFMMod.yaml#/NFMModSettings"
-      LocalSinkSettings:
-        $ref: "http://localhost:8081/api/swagger/include/LocalSink.yaml#/LocalSinkSettings"
-      LocalSourceSettings:
-        $ref: "http://localhost:8081/api/swagger/include/LocalSource.yaml#/LocalSourceSettings"
-      RemoteSinkSettings:
-        $ref: "http://localhost:8081/api/swagger/include/RemoteSink.yaml#/RemoteSinkSettings"
-      RemoteSourceSettings:
-        $ref: "http://localhost:8081/api/swagger/include/RemoteSource.yaml#/RemoteSourceSettings"
-      SSBModSettings:
-        $ref: "http://localhost:8081/api/swagger/include/SSBMod.yaml#/SSBModSettings"
-      SSBDemodSettings:
-        $ref: "http://localhost:8081/api/swagger/include/SSBDemod.yaml#/SSBDemodSettings"
-      UDPSourceSettings:
-        $ref: "http://localhost:8081/api/swagger/include/UDPSource.yaml#/UDPSourceSettings"
-      UDPSinkSettings:
-        $ref: "http://localhost:8081/api/swagger/include/UDPSink.yaml#/UDPSinkSettings"
-      WFMDemodSettings:
-        $ref: "http://localhost:8081/api/swagger/include/WFMDemod.yaml#/WFMDemodSettings"
-      WFMModSettings:
-        $ref: "http://localhost:8081/api/swagger/include/WFMMod.yaml#/WFMModSettings"
-
   ChannelReport:
     description: Base channel report. Only the channel report corresponding to the channel specified in the channelType field is or should be present.
     discriminator: channelType
@@ -1970,6 +2342,8 @@ definitions:
         $ref: "http://localhost:8081/api/swagger/include/BFMDemod.yaml#/BFMDemodReport"
       DSDDemodReport:
         $ref: "http://localhost:8081/api/swagger/include/DSDDemod.yaml#/DSDDemodReport"
+      FileSourceReport:
+        $ref: "http://localhost:8081/api/swagger/include/FileSource.yaml#/FileSourceReport"
       FreeDVDemodReport:
         $ref: "http://localhost:8081/api/swagger/include/FreeDVDemod.yaml#/FreeDVDemodReport"
       FreeDVModReport:

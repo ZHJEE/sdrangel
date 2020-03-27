@@ -7,6 +7,7 @@
 #include "export.h"
 
 struct SDRBASE_API PluginDescriptor {
+    const QString hardwareId;
 	// general plugin description
 	const QString displayedName;
 	const QString version;
@@ -23,9 +24,13 @@ class PluginInstanceGUI;
 class QWidget;
 class DeviceSampleSource;
 class DeviceSampleSink;
+class DeviceSampleMIMO;
 class BasebandSampleSink;
 class BasebandSampleSource;
+class MIMOChannel;
 class ChannelAPI;
+class ChannelWebAPIAdapter;
+class DeviceWebAPIAdapter;
 
 class SDRBASE_API PluginInterface {
 public:
@@ -41,7 +46,7 @@ public:
         {
             StreamSingleRx, //!< Exposes a single input stream that can be one of the streams of a physical device
             StreamSingleTx, //!< Exposes a single output stream that can be one of the streams of a physical device
-            StreamAny       //!< May expose any number of input and/or output streams
+            StreamMIMO      //!< May expose any number of input and/or output streams
         };
 
 		QString displayedName;    //!< The human readable name
@@ -78,6 +83,37 @@ public:
 	};
 	typedef QList<SamplingDevice> SamplingDevices;
 
+    /** This is the device from which the sampling devices are derived. For physical devices this represents
+     * a single physical unit (a LimeSDR, HackRF, BladeRF, RTL-SDR dongle, ...) that is enumerated once and
+     * reported in the system so that the "sampling devices" used in the system can be registered
+    */
+    struct OriginDevice
+    {
+        QString displayableName; //!< A human readable name
+        QString hardwareId;      //!< The internal id that identifies the type of hardware (i.e. HackRF, BladeRF, ...)
+        QString serial;          //!< The device serial number defined by the vendor or a fake one (SDRplay)
+        int sequence;            //!< The device sequence in order of enumeration
+        int nbRxStreams;         //!< Number of receiver streams
+        int nbTxStreams;         //!< Number of transmitter streams
+
+        OriginDevice(
+                const QString& _displayableName,
+                const QString& _hardwareId,
+				const QString& _serial,
+				int _sequence,
+                int _nbRxStreams,
+                int _nbTxStreams
+        ) :
+            displayableName(_displayableName),
+            hardwareId(_hardwareId),
+            serial(_serial),
+            sequence(_sequence),
+            nbRxStreams(_nbRxStreams),
+            nbTxStreams(_nbTxStreams)
+        {}
+    };
+    typedef QList<OriginDevice> OriginDevices;
+
     virtual ~PluginInterface() { }
 
 	virtual const PluginDescriptor& getPluginDescriptor() const = 0;
@@ -87,22 +123,20 @@ public:
 
     virtual PluginInstanceGUI* createRxChannelGUI(
             DeviceUISet *deviceUISet,
-            BasebandSampleSink *rxChannel)
+            BasebandSampleSink *rxChannel) const
     {
         (void) deviceUISet;
         (void) rxChannel;
         return nullptr;
     }
 
-    virtual BasebandSampleSink* createRxChannelBS(
-            DeviceAPI *deviceAPI)
+    virtual BasebandSampleSink* createRxChannelBS(DeviceAPI *deviceAPI) const
     {
         (void) deviceAPI;
         return nullptr;
     }
 
-    virtual ChannelAPI* createRxChannelCS(
-            DeviceAPI *deviceAPI)
+    virtual ChannelAPI* createRxChannelCS(DeviceAPI *deviceAPI) const
     {
         (void) deviceAPI;
         return nullptr;
@@ -112,30 +146,78 @@ public:
 
 	virtual PluginInstanceGUI* createTxChannelGUI(
             DeviceUISet *deviceUISet,
-            BasebandSampleSource *txChannel)
+            BasebandSampleSource *txChannel) const
     {
         (void) deviceUISet;
         (void) txChannel;
         return nullptr;
     }
 
-    virtual BasebandSampleSource* createTxChannelBS(
-            DeviceAPI *deviceAPI)
+    virtual BasebandSampleSource* createTxChannelBS(DeviceAPI *deviceAPI) const
     {
         (void) deviceAPI;
         return nullptr;
     }
 
-    virtual ChannelAPI* createTxChannelCS(
-            DeviceAPI *deviceAPI)
+    virtual ChannelAPI* createTxChannelCS(DeviceAPI *deviceAPI) const
     {
         (void) deviceAPI;
         return nullptr;
+    }
+
+    // channel MIMO plugins
+
+	virtual PluginInstanceGUI* createMIMOChannelGUI(
+            DeviceUISet *deviceUISet,
+            MIMOChannel *mimoChannel) const
+    {
+        (void) deviceUISet;
+        (void) mimoChannel;
+        return nullptr;
+    }
+
+    virtual MIMOChannel* createMIMOChannelBS(DeviceAPI *deviceAPI) const
+    {
+        (void) deviceAPI;
+        return nullptr;
+    }
+
+    virtual ChannelAPI* createMIMOChannelCS(DeviceAPI *deviceAPI) const
+    {
+        (void) deviceAPI;
+        return nullptr;
+    }
+
+    // any channel
+
+    virtual ChannelWebAPIAdapter* createChannelWebAPIAdapter() const
+    {
+        return nullptr;
+    }
+
+    // any device
+
+    virtual void enumOriginDevices(QStringList& listedHwIds, OriginDevices& originDevices)
+    {
+        (void) listedHwIds;
+        (void) originDevices;
+    }
+
+    virtual SamplingDevice::SamplingDeviceType getSamplingDeviceType() const {
+        return SamplingDevice::SamplingDeviceType::PhysicalDevice;
+    }
+
+    virtual QString getDeviceTypeId() const {
+        return QString("");
     }
 
     // device source plugins only
 
-	virtual SamplingDevices enumSampleSources() { return SamplingDevices(); }
+	virtual SamplingDevices enumSampleSources(const OriginDevices& originDevices)
+    {
+        (void) originDevices;
+        return SamplingDevices();
+    }
 
 	virtual PluginInstanceGUI* createSampleSourcePluginInstanceGUI(
             const QString& sourceId,
@@ -148,7 +230,7 @@ public:
         return nullptr;
     }
 
-    virtual DeviceSampleSource* createSampleSourcePluginInstanceInput( // creates the input "core"
+    virtual DeviceSampleSource* createSampleSourcePluginInstance( // creates the input "core"
             const QString& sourceId,
             DeviceAPI *deviceAPI)
     {
@@ -159,9 +241,17 @@ public:
 	virtual void deleteSampleSourcePluginInstanceGUI(PluginInstanceGUI *ui);
 	virtual void deleteSampleSourcePluginInstanceInput(DeviceSampleSource *source);
 
+    virtual int getDefaultRxNbItems() const {
+        return 1;
+    }
+
 	// device sink plugins only
 
-	virtual SamplingDevices enumSampleSinks() { return SamplingDevices(); }
+	virtual SamplingDevices enumSampleSinks(const OriginDevices& originDevices)
+    {
+        (void) originDevices;
+        return SamplingDevices();
+    }
 
 	virtual PluginInstanceGUI* createSampleSinkPluginInstanceGUI(
             const QString& sinkId,
@@ -174,7 +264,7 @@ public:
         return nullptr;
     }
 
-    virtual DeviceSampleSink* createSampleSinkPluginInstanceOutput( // creates the output "core"
+    virtual DeviceSampleSink* createSampleSinkPluginInstance( // creates the output "core"
             const QString& sinkId,
             DeviceAPI *deviceAPI)
     {
@@ -185,8 +275,49 @@ public:
 
     virtual void deleteSampleSinkPluginInstanceGUI(PluginInstanceGUI *ui);
     virtual void deleteSampleSinkPluginInstanceOutput(DeviceSampleSink *sink);
+
+    virtual int getDefaultTxNbItems() const {
+        return 1;
+    }
+
+    // device MIMO plugins only
+
+	virtual SamplingDevices enumSampleMIMO(const OriginDevices& originDevices)
+    {
+        (void) originDevices;
+        return SamplingDevices();
+    }
+
+	virtual PluginInstanceGUI* createSampleMIMOPluginInstanceGUI(
+            const QString& mimoId,
+            QWidget **widget,
+            DeviceUISet *deviceUISet)
+    {
+        (void) mimoId;
+        (void) widget;
+        (void) deviceUISet;
+        return nullptr;
+    }
+
+    virtual DeviceSampleMIMO* createSampleMIMOPluginInstance( // creates the MIMO "core"
+            const QString& mimoId,
+            DeviceAPI *deviceAPI)
+    {
+        (void) mimoId;
+        (void) deviceAPI;
+        return nullptr;
+    }
+
+    virtual void deleteSampleMIMOPluginInstanceGUI(PluginInstanceGUI *ui);
+    virtual void deleteSampleMIMOPluginInstanceMIMO(DeviceSampleMIMO *mimo);
+
+    // all devices
+
+    virtual DeviceWebAPIAdapter* createDeviceWebAPIAdapter() const {
+        return nullptr;
+    }
 };
 
-Q_DECLARE_INTERFACE(PluginInterface, "SDRangel.PluginInterface/0.1");
+Q_DECLARE_INTERFACE(PluginInterface, "SDRangel.PluginInterface/0.1")
 
 #endif // INCLUDE_PLUGININTERFACE_H

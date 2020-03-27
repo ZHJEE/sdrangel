@@ -33,18 +33,17 @@ public:
 		        int fftSize,
 		        int overlapPercent,
 		        unsigned int averageNb,
-		        int preProcessMode,
+		        AvgMode avgMode,
 		        FFTWindow::Function window,
 		        bool linear) :
 			Message(),
 			m_fftSize(fftSize),
 			m_overlapPercent(overlapPercent),
 			m_averageNb(averageNb),
+            m_avgMode(avgMode),
 			m_window(window),
 			m_linear(linear)
-		{
-		    m_avgMode = preProcessMode < 0 ? AvgModeNone : preProcessMode > 3 ? AvgModeMax : (SpectrumVis::AvgMode) preProcessMode;
-		}
+		{}
 
 		int getFFTSize() const { return m_fftSize; }
 		int getOverlapPercent() const { return m_overlapPercent; }
@@ -62,6 +61,22 @@ public:
 		bool m_linear;
 	};
 
+    class MsgConfigureScalingFactor : public Message
+    {
+		MESSAGE_CLASS_DECLARATION
+
+	public:
+        MsgConfigureScalingFactor(Real scalef) :
+            Message(),
+            m_scalef(scalef)
+        {}
+
+        Real getScalef() const { return m_scalef; }
+
+    private:
+        Real m_scalef;
+    };
+
 	SpectrumVis(Real scalef, GLSpectrum* glSpectrum = 0);
 	virtual ~SpectrumVis();
 
@@ -69,9 +84,10 @@ public:
 	        int fftSize,
 	        int overlapPercent,
 	        unsigned int averagingNb,
-	        int averagingMode,
+	        AvgMode averagingMode,
 	        FFTWindow::Function window,
 	        bool m_linear);
+    void setScalef(MessageQueue* msgQueue, Real scalef);
 
 	virtual void feed(const SampleVector::const_iterator& begin, const SampleVector::const_iterator& end, bool positiveOnly);
 	void feedTriggered(const SampleVector::const_iterator& triggerPoint, const SampleVector::const_iterator& end, bool positiveOnly);
@@ -82,6 +98,7 @@ public:
 private:
 	FFTEngine* m_fft;
 	FFTWindow m_window;
+    unsigned int m_fftEngineSequence;
 
 	std::vector<Complex> m_fftBuffer;
 	std::vector<Real> m_powerSpectrum;
@@ -114,6 +131,7 @@ private:
 	        AvgMode averagingMode,
 	        FFTWindow::Function window,
 	        bool linear);
+    void handleScalef(Real scalef);
 };
 
 #endif // INCLUDE_SPECTRUMVIS_H

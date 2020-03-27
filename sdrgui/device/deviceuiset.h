@@ -28,9 +28,10 @@ class GLSpectrum;
 class GLSpectrumGUI;
 class ChannelWindow;
 class SamplingDeviceControl;
-class DSPDeviceSourceEngine;
 class DeviceAPI;
+class DSPDeviceSourceEngine;
 class DSPDeviceSinkEngine;
+class DSPDeviceMIMOEngine;
 class ChannelMarker;
 class PluginAPI;
 class PluginInstanceGUI;
@@ -44,47 +45,61 @@ public:
     GLSpectrumGUI *m_spectrumGUI;
     ChannelWindow *m_channelWindow;
     SamplingDeviceControl *m_samplingDeviceControl;
-    DSPDeviceSourceEngine *m_deviceSourceEngine;
     DeviceAPI *m_deviceAPI;
+    DSPDeviceSourceEngine *m_deviceSourceEngine;
     DSPDeviceSinkEngine *m_deviceSinkEngine;
+    DSPDeviceMIMOEngine *m_deviceMIMOEngine;
     QByteArray m_mainWindowState;
 
-    DeviceUISet(int tabIndex, bool rxElseTx, QTimer& timer);
+    DeviceUISet(int tabIndex, int deviceType, QTimer& timer);
     ~DeviceUISet();
 
     GLSpectrum *getSpectrum() { return m_spectrum; }     //!< Direct spectrum getter
+    void setSpectrumScalingFactor(float scalef);
     void addChannelMarker(ChannelMarker* channelMarker); //!< Add channel marker to spectrum
     void addRollupWidget(QWidget *widget);               //!< Add rollup widget to channel window
 
-    int getNumberOfRxChannels() const { return m_rxChannelInstanceRegistrations.size(); }
-    int getNumberOfTxChannels() const { return m_txChannelInstanceRegistrations.size(); }
+    int getNumberOfChannels() const { return m_channelInstanceRegistrations.size(); }
     void registerRxChannelInstance(const QString& channelName, PluginInstanceGUI* pluginGUI);
     void registerTxChannelInstance(const QString& channelName, PluginInstanceGUI* pluginGUI);
+    void registerChannelInstance(const QString& channelName, PluginInstanceGUI* pluginGUI);
     void removeRxChannelInstance(PluginInstanceGUI* pluginGUI);
     void removeTxChannelInstance(PluginInstanceGUI* pluginGUI);
-    void freeRxChannels();
-    void freeTxChannels();
-    void deleteRxChannel(int channelIndex);
-    void deleteTxChannel(int channelIndex);
+    void removeChannelInstance(PluginInstanceGUI* pluginGUI);
+    void freeChannels();
+    void deleteChannel(int channelIndex);
     void loadRxChannelSettings(const Preset* preset, PluginAPI *pluginAPI);
     void saveRxChannelSettings(Preset* preset);
     void loadTxChannelSettings(const Preset* preset, PluginAPI *pluginAPI);
     void saveTxChannelSettings(Preset* preset);
+    void loadMIMOChannelSettings(const Preset* preset, PluginAPI *pluginAPI);
+    void saveMIMOChannelSettings(Preset* preset);
+
+    // These are the number of channel types available for selection
+    void setNumberOfAvailableRxChannels(int number) { m_nbAvailableRxChannels = number; }
+    void setNumberOfAvailableTxChannels(int number) { m_nbAvailableTxChannels = number; }
+    void setNumberOfAvailableMIMOChannels(int number) { m_nbAvailableMIMOChannels = number; }
+    int getNumberOfAvailableRxChannels() const { return m_nbAvailableRxChannels; }
+    int getNumberOfAvailableTxChannels() const { return m_nbAvailableTxChannels; }
+    int getNumberOfAvailableMIMOChannels() const { return m_nbAvailableMIMOChannels; }
 
 private:
     struct ChannelInstanceRegistration
     {
         QString m_channelName;
         PluginInstanceGUI* m_gui;
+        int m_channelType;
 
         ChannelInstanceRegistration() :
             m_channelName(),
-            m_gui(nullptr)
+            m_gui(nullptr),
+            m_channelType(0)
         { }
 
-        ChannelInstanceRegistration(const QString& channelName, PluginInstanceGUI* pluginGUI) :
+        ChannelInstanceRegistration(const QString& channelName, PluginInstanceGUI* pluginGUI, int channelType) :
             m_channelName(channelName),
-            m_gui(pluginGUI)
+            m_gui(pluginGUI),
+            m_channelType(channelType)
         { }
 
         bool operator<(const ChannelInstanceRegistration& other) const;
@@ -92,14 +107,15 @@ private:
 
     typedef QList<ChannelInstanceRegistration> ChannelInstanceRegistrations;
 
-    ChannelInstanceRegistrations m_rxChannelInstanceRegistrations;
-    ChannelInstanceRegistrations m_txChannelInstanceRegistrations;
+    // ChannelInstanceRegistrations m_rxChannelInstanceRegistrations;
+    // ChannelInstanceRegistrations m_txChannelInstanceRegistrations;
+    ChannelInstanceRegistrations m_channelInstanceRegistrations;
     int m_deviceTabIndex;
+    int m_nbAvailableRxChannels;   //!< Number of Rx channels available for selection
+    int m_nbAvailableTxChannels;   //!< Number of Tx channels available for selection
+    int m_nbAvailableMIMOChannels; //!< Number of MIMO channels available for selection
 
-    void renameRxChannelInstances();
-    void renameTxChannelInstances();
-    /** Use this function to support possible older identifiers in presets */
-    bool compareRxChannelURIs(const QString& registerdChannelURI, const QString& xChannelURI);
+    void renameChannelInstances();
 };
 
 

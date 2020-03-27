@@ -1,5 +1,3 @@
-#include "nfmdemodgui.h"
-
 #include "device/deviceuiset.h"
 #include <QDockWidget>
 #include <QMainWindow>
@@ -10,11 +8,15 @@
 #include "util/simpleserializer.h"
 #include "util/db.h"
 #include "gui/basicchannelsettingsdialog.h"
+#include "gui/devicestreamselectiondialog.h"
 #include "gui/crightclickenabler.h"
 #include "gui/audioselectdialog.h"
 #include "dsp/dspengine.h"
 #include "mainwindow.h"
+
+#include "nfmdemodreport.h"
 #include "nfmdemod.h"
+#include "nfmdemodgui.h"
 
 NFMDemodGUI* NFMDemodGUI::create(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel)
 {
@@ -74,12 +76,10 @@ bool NFMDemodGUI::deserialize(const QByteArray& data)
 
 bool NFMDemodGUI::handleMessage(const Message& message)
 {
-    if (NFMDemod::MsgReportCTCSSFreq::match(message))
+    if (NFMDemodReport::MsgReportCTCSSFreq::match(message))
     {
-        //qDebug("NFMDemodGUI::handleMessage: NFMDemod::MsgReportCTCSSFreq");
-        NFMDemod::MsgReportCTCSSFreq& report = (NFMDemod::MsgReportCTCSSFreq&) message;
+        NFMDemodReport::MsgReportCTCSSFreq& report = (NFMDemodReport::MsgReportCTCSSFreq&) message;
         setCtcssFreq(report.getFrequency());
-        //qDebug("NFMDemodGUI::handleMessage: MsgReportCTCSSFreq: %f", report.getFrequency());
         return true;
     }
     else if (NFMDemod::MsgConfigureNFMDemod::match(message))
@@ -201,6 +201,12 @@ void NFMDemodGUI::on_ctcssOn_toggled(bool checked)
 	applySettings();
 }
 
+void NFMDemodGUI::on_highPassFilter_toggled(bool checked)
+{
+    m_settings.m_highPass = checked;
+    applySettings();
+}
+
 void NFMDemodGUI::on_audioMute_toggled(bool checked)
 {
 	m_settings.m_audioMute = checked;
@@ -248,6 +254,20 @@ void NFMDemodGUI::onMenuDialogCalled(const QPoint &p)
         setWindowTitle(m_settings.m_title);
         setTitleColor(m_settings.m_rgbColor);
 
+        applySettings();
+    }
+    else if ((m_contextMenuType == ContextMenuStreamSettings) && (m_deviceUISet->m_deviceMIMOEngine))
+    {
+        DeviceStreamSelectionDialog dialog(this);
+        dialog.setNumberOfStreams(m_nfmDemod->getNumberOfDeviceStreams());
+        dialog.setStreamIndex(m_settings.m_streamIndex);
+        dialog.move(p);
+        dialog.exec();
+
+        m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+        m_channelMarker.clearStreamIndexes();
+        m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+        displayStreamIndex();
         applySettings();
     }
 
@@ -345,10 +365,6 @@ void NFMDemodGUI::applySettings(bool force)
 	{
 		qDebug() << "NFMDemodGUI::applySettings";
 
-        NFMDemod::MsgConfigureChannelizer* channelConfigMsg = NFMDemod::MsgConfigureChannelizer::create(
-                48000, m_channelMarker.getCenterFrequency());
-        m_nfmDemod->getInputMessageQueue()->push(channelConfigMsg);
-
         NFMDemod::MsgConfigureNFMDemod* message = NFMDemod::MsgConfigureNFMDemod::create( m_settings, force);
         m_nfmDemod->getInputMessageQueue()->push(message);
 	}
@@ -398,11 +414,23 @@ void NFMDemodGUI::displaySettings()
     }
 
     ui->ctcssOn->setChecked(m_settings.m_ctcssOn);
+    ui->highPassFilter->setChecked(m_settings.m_highPass);
     ui->audioMute->setChecked(m_settings.m_audioMute);
 
     ui->ctcss->setCurrentIndex(m_settings.m_ctcssIndex);
 
+    displayStreamIndex();
+
     blockApplySettings(false);
+}
+
+void NFMDemodGUI::displayStreamIndex()
+{
+    if (m_deviceUISet->m_deviceMIMOEngine) {
+        setStreamIndicator(tr("%1").arg(m_settings.m_streamIndex));
+    } else {
+        setStreamIndicator("S"); // single channel indicator
+    }
 }
 
 void NFMDemodGUI::leaveEvent(QEvent*)

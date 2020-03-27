@@ -22,15 +22,16 @@
 #include <QDebug>
 
 #include "device/deviceuiset.h"
-#include "dsp/upchannelizer.h"
 
 #include "plugin/pluginapi.h"
 #include "util/simpleserializer.h"
 #include "util/db.h"
 #include "dsp/dspengine.h"
+#include "dsp/cwkeyer.h"
 #include "gui/crightclickenabler.h"
 #include "gui/audioselectdialog.h"
 #include "gui/basicchannelsettingsdialog.h"
+#include "gui/devicestreamselectiondialog.h"
 #include "mainwindow.h"
 
 #include "ui_ammodgui.h"
@@ -119,7 +120,8 @@ bool AMModGUI::handleMessage(const Message& message)
     else if (CWKeyer::MsgConfigureCWKeyer::match(message))
     {
         const CWKeyer::MsgConfigureCWKeyer& cfg = (CWKeyer::MsgConfigureCWKeyer&) message;
-        ui->cwKeyerGUI->displaySettings(cfg.getSettings());
+        ui->cwKeyerGUI->setSettings(cfg.getSettings());
+        ui->cwKeyerGUI->displaySettings();
         return true;
     }
     else
@@ -235,6 +237,19 @@ void AMModGUI::on_mic_toggled(bool checked)
     applySettings();
 }
 
+void AMModGUI::on_feedbackEnable_toggled(bool checked)
+{
+    m_settings.m_feedbackAudioEnable = checked;
+    applySettings();
+}
+
+void AMModGUI::on_feedbackVolume_valueChanged(int value)
+{
+    ui->feedbackVolumeText->setText(QString("%1").arg(value / 100.0, 0, 'f', 2));
+    m_settings.m_feedbackVolumeFactor = value / 100.0;
+    applySettings();
+}
+
 void AMModGUI::on_navTimeSlider_valueChanged(int value)
 {
     if (m_enableNavTime && ((value >= 0) && (value <= 100)))
@@ -303,6 +318,20 @@ void AMModGUI::onMenuDialogCalled(const QPoint &p)
 
         applySettings();
     }
+    else if ((m_contextMenuType == ContextMenuStreamSettings) && (m_deviceUISet->m_deviceMIMOEngine))
+    {
+        DeviceStreamSelectionDialog dialog(this);
+        dialog.setNumberOfStreams(m_amMod->getNumberOfDeviceStreams());
+        dialog.setStreamIndex(m_settings.m_streamIndex);
+        dialog.move(p);
+        dialog.exec();
+
+        m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+        m_channelMarker.clearStreamIndexes();
+        m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+        displayStreamIndex();
+        applySettings();
+    }
 
     resetContextMenuType();
 }
@@ -333,6 +362,9 @@ AMModGUI::AMModGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, BasebandSampl
     CRightClickEnabler *audioMuteRightClickEnabler = new CRightClickEnabler(ui->mic);
     connect(audioMuteRightClickEnabler, SIGNAL(rightClick(const QPoint &)), this, SLOT(audioSelect()));
 
+    CRightClickEnabler *feedbackRightClickEnabler = new CRightClickEnabler(ui->feedbackEnable);
+    connect(feedbackRightClickEnabler, SIGNAL(rightClick(const QPoint &)), this, SLOT(audioFeedbackSelect()));
+
     ui->deltaFrequencyLabel->setText(QString("%1f").arg(QChar(0x94, 0x03)));
     ui->deltaFrequency->setColorMapper(ColorMapper(ColorMapper::GrayGold));
     ui->deltaFrequency->setValueRange(false, 7, -9999999, 9999999);
@@ -342,6 +374,7 @@ AMModGUI::AMModGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, BasebandSampl
     m_channelMarker.setBandwidth(5000);
     m_channelMarker.setCenterFrequency(0);
     m_channelMarker.setTitle("AM Modulator");
+    m_channelMarker.setSourceOrSinkStream(false);
     m_channelMarker.blockSignals(false);
 	m_channelMarker.setVisible(true); // activate signal on the last setting only
 
@@ -360,10 +393,10 @@ AMModGUI::AMModGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, BasebandSampl
     ui->morseKeyer->setChecked(false);
     ui->mic->setChecked(false);
 
-    ui->cwKeyerGUI->setBuddies(m_amMod->getInputMessageQueue(), m_amMod->getCWKeyer());
+    ui->cwKeyerGUI->setCWKeyer(m_amMod->getCWKeyer());
 
 	connect(getInputMessageQueue(), SIGNAL(messageEnqueued()), this, SLOT(handleSourceMessages()));
-	connect(m_amMod, SIGNAL(levelChanged(qreal, qreal, int)), ui->volumeMeter, SLOT(levelChanged(qreal, qreal, int)));
+    m_amMod->setLevelMeter(ui->volumeMeter);
 
 	displaySettings();
     applySettings(true);
@@ -383,15 +416,9 @@ void AMModGUI::blockApplySettings(bool block)
 
 void AMModGUI::applySettings(bool force)
 {
-    (void) force;
 	if (m_doApplySettings)
 	{
 		setTitleColor(m_channelMarker.getColor());
-
-		AMMod::MsgConfigureChannelizer *msgConfigure = AMMod::MsgConfigureChannelizer::create(
-		        48000, m_channelMarker.getCenterFrequency());
-        m_amMod->getInputMessageQueue()->push(msgConfigure);
-
         AMMod::MsgConfigureAMMod* message = AMMod::MsgConfigureAMMod::create( m_settings, force);
         m_amMod->getInputMessageQueue()->push(message);
 	}
@@ -439,7 +466,22 @@ void AMModGUI::displaySettings()
     ui->play->setChecked(m_settings.m_modAFInput == AMModSettings::AMModInputAF::AMModInputFile);
     ui->morseKeyer->setChecked(m_settings.m_modAFInput == AMModSettings::AMModInputAF::AMModInputCWTone);
 
+    ui->feedbackEnable->setChecked(m_settings.m_feedbackAudioEnable);
+    ui->feedbackVolume->setValue(roundf(m_settings.m_feedbackVolumeFactor * 100.0));
+    ui->feedbackVolumeText->setText(QString("%1").arg(m_settings.m_feedbackVolumeFactor, 0, 'f', 2));
+
+    displayStreamIndex();
+
     blockApplySettings(false);
+}
+
+void AMModGUI::displayStreamIndex()
+{
+    if (m_deviceUISet->m_deviceMIMOEngine) {
+        setStreamIndicator(tr("%1").arg(m_settings.m_streamIndex));
+    } else {
+        setStreamIndicator("S"); // single channel indicator
+    }
 }
 
 void AMModGUI::leaveEvent(QEvent*)
@@ -461,6 +503,19 @@ void AMModGUI::audioSelect()
     if (audioSelect.m_selected)
     {
         m_settings.m_audioDeviceName = audioSelect.m_audioDeviceName;
+        applySettings();
+    }
+}
+
+void AMModGUI::audioFeedbackSelect()
+{
+    qDebug("AMModGUI::audioFeedbackSelect");
+    AudioSelectDialog audioSelect(DSPEngine::instance()->getAudioDeviceManager(), m_settings.m_audioDeviceName, false); // false for output
+    audioSelect.exec();
+
+    if (audioSelect.m_selected)
+    {
+        m_settings.m_feedbackAudioDeviceName = audioSelect.m_audioDeviceName;
         applySettings();
     }
 }

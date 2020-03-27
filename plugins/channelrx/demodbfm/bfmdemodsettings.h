@@ -36,6 +36,7 @@ struct BFMDemodSettings
     quint32 m_rgbColor;
     QString m_title;
     QString m_audioDeviceName;
+    int m_streamIndex; //!< MIMO channel. Not relevant when connected to SI (single Rx).
     bool m_useReverseAPI;
     QString m_reverseAPIAddress;
     uint16_t m_reverseAPIPort;
@@ -57,6 +58,15 @@ struct BFMDemodSettings
 
     static int getRFBW(int index);
     static int getRFBWIndex(int rfbw);
+
+    static int requiredBW(int rfBW)
+    {
+        if (rfBW <= 48000) {
+            return 48000;
+        } else {
+            return (3*rfBW)/2;
+        }
+    }
 };
 
 

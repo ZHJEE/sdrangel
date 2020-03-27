@@ -49,12 +49,13 @@ MESSAGE_CLASS_DEFINITION(LimeSDROutput::MsgReportStreamInfo, Message)
 LimeSDROutput::LimeSDROutput(DeviceAPI *deviceAPI) :
     m_deviceAPI(deviceAPI),
     m_settings(),
-    m_limeSDROutputThread(0),
+    m_limeSDROutputThread(nullptr),
     m_deviceDescription("LimeSDROutput"),
     m_running(false),
     m_channelAcquired(false)
 {
-    m_sampleSourceFifo.resize(16*LIMESDROUTPUT_BLOCKSIZE);
+    m_deviceAPI->setNbSinkStreams(1);
+    m_sampleSourceFifo.resize(SampleSourceFifo::getSizePolicy(m_settings.m_devSampleRate));
     m_streamId.handle = 0;
     suspendRxBuddies();
     suspendTxBuddies();
@@ -88,7 +89,7 @@ void LimeSDROutput::destroy()
 
 bool LimeSDROutput::openDevice()
 {
-    int requestedChannel = m_deviceAPI->getItemIndex();
+    int requestedChannel = m_deviceAPI->getDeviceItemIndex();
 
     // look for Tx buddies and get reference to common parameters
     // if there is a channel left take the first available
@@ -822,11 +823,16 @@ bool LimeSDROutput::applySettings(const LimeSDROutputSettings& settings, bool fo
         reverseAPIKeys.append("devSampleRate");
         reverseAPIKeys.append("log2SoftInterp");
 
-        int fifoSize = (std::max)(
-                (int) ((settings.m_devSampleRate/(1<<settings.m_log2SoftInterp)) * DeviceLimeSDRShared::m_sampleFifoLengthInSeconds),
-                DeviceLimeSDRShared::m_sampleFifoMinSize);
-        qDebug("LimeSDROutput::applySettings: resize FIFO: %d", fifoSize);
-        m_sampleSourceFifo.resize(fifoSize);
+#if defined(_MSC_VER)
+        unsigned int fifoRate = (unsigned int) settings.m_devSampleRate / (1<<settings.m_log2SoftInterp);
+        fifoRate = fifoRate < 48000U ? 48000U : fifoRate;
+#else
+        unsigned int fifoRate = std::max(
+            (unsigned int) settings.m_devSampleRate / (1<<settings.m_log2SoftInterp),
+            DeviceLimeSDRShared::m_sampleFifoMinRate);
+#endif
+        m_sampleSourceFifo.resize(SampleSourceFifo::getSizePolicy(fifoRate));
+        qDebug("LimeSDROutput::applySettings: resize FIFO: rate %u", fifoRate);
     }
 
     if ((m_settings.m_lpfBW != settings.m_lpfBW) || force)
@@ -1253,7 +1259,26 @@ int LimeSDROutput::webapiSettingsPutPatch(
 {
     (void) errorMessage;
     LimeSDROutputSettings settings = m_settings;
+    webapiUpdateDeviceSettings(settings, deviceSettingsKeys, response);
 
+    MsgConfigureLimeSDR *msg = MsgConfigureLimeSDR::create(settings, force);
+    m_inputMessageQueue.push(msg);
+
+    if (m_guiMessageQueue) // forward to GUI if any
+    {
+        MsgConfigureLimeSDR *msgToGUI = MsgConfigureLimeSDR::create(settings, force);
+        m_guiMessageQueue->push(msgToGUI);
+    }
+
+    webapiFormatDeviceSettings(response, settings);
+    return 200;
+}
+
+void LimeSDROutput::webapiUpdateDeviceSettings(
+        LimeSDROutputSettings& settings,
+        const QStringList& deviceSettingsKeys,
+        SWGSDRangel::SWGDeviceSettings& response)
+{
     if (deviceSettingsKeys.contains("antennaPath")) {
         settings.m_antennaPath = (LimeSDROutputSettings::PathRFE) response.getLimeSdrOutputSettings()->getAntennaPath();
     }
@@ -1317,18 +1342,6 @@ int LimeSDROutput::webapiSettingsPutPatch(
     if (deviceSettingsKeys.contains("reverseAPIDeviceIndex")) {
         settings.m_reverseAPIDeviceIndex = response.getLimeSdrOutputSettings()->getReverseApiDeviceIndex();
     }
-
-    MsgConfigureLimeSDR *msg = MsgConfigureLimeSDR::create(settings, force);
-    m_inputMessageQueue.push(msg);
-
-    if (m_guiMessageQueue) // forward to GUI if any
-    {
-        MsgConfigureLimeSDR *msgToGUI = MsgConfigureLimeSDR::create(settings, force);
-        m_guiMessageQueue->push(msgToGUI);
-    }
-
-    webapiFormatDeviceSettings(response, settings);
-    return 200;
 }
 
 int LimeSDROutput::webapiReportGet(
@@ -1510,13 +1523,14 @@ void LimeSDROutput::webapiReverseSendSettings(QList<QString>& deviceSettingsKeys
     m_networkRequest.setUrl(QUrl(deviceSettingsURL));
     m_networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-    QBuffer *buffer=new QBuffer();
+    QBuffer *buffer = new QBuffer();
     buffer->open((QBuffer::ReadWrite));
     buffer->write(swgDeviceSettings->asJson().toUtf8());
     buffer->seek(0);
 
     // Always use PATCH to avoid passing reverse API settings
-    m_networkManager->sendCustomRequest(m_networkRequest, "PATCH", buffer);
+    QNetworkReply *reply = m_networkManager->sendCustomRequest(m_networkRequest, "PATCH", buffer);
+    buffer->setParent(reply);
 
     delete swgDeviceSettings;
 }
@@ -1535,16 +1549,20 @@ void LimeSDROutput::webapiReverseSendStartStop(bool start)
     m_networkRequest.setUrl(QUrl(deviceSettingsURL));
     m_networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-    QBuffer *buffer=new QBuffer();
+    QBuffer *buffer = new QBuffer();
     buffer->open((QBuffer::ReadWrite));
     buffer->write(swgDeviceSettings->asJson().toUtf8());
     buffer->seek(0);
+    QNetworkReply *reply;
 
     if (start) {
-        m_networkManager->sendCustomRequest(m_networkRequest, "POST", buffer);
+        reply = m_networkManager->sendCustomRequest(m_networkRequest, "POST", buffer);
     } else {
-        m_networkManager->sendCustomRequest(m_networkRequest, "DELETE", buffer);
+        reply = m_networkManager->sendCustomRequest(m_networkRequest, "DELETE", buffer);
     }
+
+    buffer->setParent(reply);
+    delete swgDeviceSettings;
 }
 
 void LimeSDROutput::networkManagerFinished(QNetworkReply *reply)
@@ -1557,10 +1575,13 @@ void LimeSDROutput::networkManagerFinished(QNetworkReply *reply)
                 << " error(" << (int) replyError
                 << "): " << replyError
                 << ": " << reply->errorString();
-        return;
+    }
+    else
+    {
+        QString answer = reply->readAll();
+        answer.chop(1); // remove last \n
+        qDebug("LimeSDROutput::networkManagerFinished: reply:\n%s", answer.toStdString().c_str());
     }
 
-    QString answer = reply->readAll();
-    answer.chop(1); // remove last \n
-    qDebug("LimeSDROutput::networkManagerFinished: reply:\n%s", answer.toStdString().c_str());
+    reply->deleteLater();
 }

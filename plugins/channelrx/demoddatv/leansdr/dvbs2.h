@@ -17,12 +17,23 @@
 #ifndef LEANSDR_DVBS2_H
 #define LEANSDR_DVBS2_H
 
+/*
 #include "leansdr/bch.h"
 #include "leansdr/crc.h"
 #include "leansdr/dvb.h"
 #include "leansdr/ldpc.h"
 #include "leansdr/sdr.h"
 #include "leansdr/softword.h"
+*/
+
+#include "bch.h"
+
+#include "crc.h"
+
+#include "dvb.h"
+#include "softword.h"
+#include "ldpc.h"
+#include "sdr.h"
 
 namespace leansdr
 {
@@ -461,7 +472,9 @@ struct s2_frame_receiver : runnable
           symbols_out(opt_writer(_symbols_out, MAX_SYMBOLS_PER_FRAME)),
           state_out(opt_writer(_state_out)),
           report_state(false),
-          scrambling(0)
+          scrambling(0),
+          m_modcodType(-1),
+          m_modcodRate(-1)
     {
         // Constellation for PLS
         qpsk = new cstln_lut<SOFTSYMB, 256>(cstln_base::QPSK);
@@ -720,7 +733,7 @@ struct s2_frame_receiver : runnable
         // Read PLSCODE
 
         uint64_t plscode = 0;
-        complex<float> pls_symbols[plscodes.LENGTH];
+        complex<float> pls_symbols[s2_plscodes<T>::LENGTH];
         for (int s = 0; s < plscodes.LENGTH; ++s)
         {
             complex<float> p = interp_next(&ss) * agc_gain;
@@ -784,6 +797,13 @@ struct s2_frame_receiver : runnable
             return;
         }
 #endif
+        // Store current MODCOD info
+        if (mcinfo->c != m_modcodType) {
+            m_modcodType = mcinfo->c;
+        }
+        if (mcinfo->rate != m_modcodRate) {
+            m_modcodRate = mcinfo->rate;
+        }
 
         // TBD Comparison of nsymbols is insufficient for DVB-S2X.
         if (!cstln || cstln->nsymbols != mcinfo->nsymbols)
@@ -797,6 +817,9 @@ struct s2_frame_receiver : runnable
                     cstln_base::names[mcinfo->c], mcinfo->rate);
             cstln = new cstln_lut<SOFTSYMB, 256>(mcinfo->c, mcinfo->esn0_nf,
                                                  mcinfo->g1, mcinfo->g2, mcinfo->g3);
+            cstln->m_rateCode = (int) mcinfo->rate;
+            cstln->m_typeCode = (int) mcinfo->c;
+            cstln->m_setByModcod = true;
 #if 0
 	fprintf(stderr, "Dumping constellation LUT to stdout.\n");
 	cstln->dump(stdout);
@@ -819,7 +842,7 @@ struct s2_frame_receiver : runnable
         // Slots to skip until next PL slot (pilot or sof)
         int till_next_pls = pls.pilots ? 16 : S;
 
-        for (int slots = S; slots--; ++pout, --till_next_pls)
+        for (int leansdr_slots = S; leansdr_slots--; ++pout, --till_next_pls)
         {
             if (till_next_pls == 0)
             {
@@ -1068,8 +1091,8 @@ struct s2_frame_receiver : runnable
         {
             float kph, kfw, kmu;
         } gains[2] = {
-            {4e-2, 1e-4, 0.001 / (cstln_amp * cstln_amp)},
-            {4e-2, 1e-4, 0.001 / (cstln_amp * cstln_amp)}};
+            {4e-2, 1e-4, (float) 0.001 / (cstln_amp * cstln_amp)},
+            {4e-2, 1e-4, (float) 0.001 / (cstln_amp * cstln_amp)}};
         // Decision
         typename cstln_lut<SOFTSYMB, 256>::result *cr = c->lookup(p.re, p.im);
         // Carrier tracking
@@ -1182,6 +1205,8 @@ struct s2_frame_receiver : runnable
     // S2 constants
     s2_scrambling scrambling;
     s2_sof<T> sof;
+    int m_modcodType;
+    int m_modcodRate;
     // Max size of one frame
     //    static const int MAX_SLOTS = 360;
     static const int MAX_SLOTS = 240; // DEBUG match test signal
@@ -1853,36 +1878,36 @@ static const struct fec_info
     const s2_ldpc_table *ldpc;
 } fec_infos[2][FEC_COUNT] = {
     {
-        // Normal frames
-        [FEC12] = {32208, 32400, 12, &ldpc_nf_fec12},
-        [FEC23] = {43040, 43200, 10, &ldpc_nf_fec23},
-        [FEC46] = {0},
-        [FEC34] = {48408, 48600, 12, &ldpc_nf_fec34},
-        [FEC56] = {53840, 54000, 10, &ldpc_nf_fec56},
-        [FEC78] = {0},
-        [FEC45] = {51648, 51840, 12, &ldpc_nf_fec45},
-        [FEC89] = {57472, 57600, 8, &ldpc_nf_fec89},
-        [FEC910] = {58192, 58320, 8, &ldpc_nf_fec910},
-        [FEC14] = {16008, 16200, 12, &ldpc_nf_fec14},
-        [FEC13] = {21408, 21600, 12, &ldpc_nf_fec13},
-        [FEC25] = {25728, 25920, 12, &ldpc_nf_fec25},
-        [FEC35] = {38688, 38880, 12, &ldpc_nf_fec35},
+        // Normal frames - must respect enum code_rate order
+        {32208, 32400, 12, &ldpc_nf_fec12},  // FEC12 (was [FEC12] = {...} and so on. Does not compile with MSVC)
+        {43040, 43200, 10, &ldpc_nf_fec23},  // FEC23
+        {0},                                 // FEC46
+        {48408, 48600, 12, &ldpc_nf_fec34},  // FEC34
+        {53840, 54000, 10, &ldpc_nf_fec56},  // FEC56
+        {0},                                 // FEC78
+        {51648, 51840, 12, &ldpc_nf_fec45},  // FEC45
+        {57472, 57600, 8, &ldpc_nf_fec89},   // FEC89
+        {58192, 58320, 8, &ldpc_nf_fec910},  // FEC910
+        {16008, 16200, 12, &ldpc_nf_fec14},  // FEC14
+        {21408, 21600, 12, &ldpc_nf_fec13},  // FEC13
+        {25728, 25920, 12, &ldpc_nf_fec25},  // FEC25
+        {38688, 38880, 12, &ldpc_nf_fec35},  // FEC35
     },
     {
-        // Short frames
-        [FEC12] = {7032, 7200, 12, &ldpc_sf_fec12},
-        [FEC23] = {10632, 10800, 12, &ldpc_sf_fec23},
-        [FEC46] = {},
-        [FEC34] = {11712, 11880, 12, &ldpc_sf_fec34},
-        [FEC56] = {13152, 13320, 12, &ldpc_sf_fec56},
-        [FEC78] = {},
-        [FEC45] = {12432, 12600, 12, &ldpc_sf_fec45},
-        [FEC89] = {14232, 14400, 12, &ldpc_sf_fec89},
-        [FEC910] = {},
-        [FEC14] = {3072, 3240, 12, &ldpc_sf_fec14},
-        [FEC13] = {5232, 5400, 12, &ldpc_sf_fec13},
-        [FEC25] = {6312, 6480, 12, &ldpc_sf_fec25},
-        [FEC35] = {9552, 9720, 12, &ldpc_sf_fec35},
+        // Short frames - must respect enum code_rate order
+        {7032, 7200, 12, &ldpc_sf_fec12},    // FEC12 (was [FEC12] = {...} and so on. Does not compile with MSVC)
+        {10632, 10800, 12, &ldpc_sf_fec23},  // FEC23
+        {},                                  // FEC46
+        {11712, 11880, 12, &ldpc_sf_fec34},  // FEC34
+        {13152, 13320, 12, &ldpc_sf_fec56},  // FEC56
+        {},                                  // FEC78
+        {12432, 12600, 12, &ldpc_sf_fec45},  // FEC45
+        {14232, 14400, 12, &ldpc_sf_fec89},  // FEC89
+        {},                                  // FEC910
+        {3072, 3240, 12, &ldpc_sf_fec14},    // FEC14
+        {5232, 5400, 12, &ldpc_sf_fec13},    // FEC13
+        {6312, 6480, 12, &ldpc_sf_fec25},    // FEC25
+        {9552, 9720, 12, &ldpc_sf_fec35},    // FEC35
     },
 };
 
@@ -2304,6 +2329,9 @@ struct s2_fecdec_helper : runnable
             fatal("pipe");
         // Size the pipes so that the helper never runs out of work to do.
         int pipesize = 64800 * batch_size;
+// macOS does not have F_SETPIPE_SZ and there
+// is no way to change the buffer size
+#ifndef __APPLE__
         if (fcntl(tx[0], F_SETPIPE_SZ, pipesize) < 0 ||
             fcntl(rx[0], F_SETPIPE_SZ, pipesize) < 0 ||
             fcntl(tx[1], F_SETPIPE_SZ, pipesize) < 0 ||
@@ -2318,6 +2346,7 @@ struct s2_fecdec_helper : runnable
             else
                 fprintf(stderr, "*** Throughput will be suboptimal.\n");
         }
+#endif
         int child = vfork();
         if (!child)
         {

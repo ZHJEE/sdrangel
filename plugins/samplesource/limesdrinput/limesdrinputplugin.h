@@ -36,19 +36,20 @@ public:
     const PluginDescriptor& getPluginDescriptor() const;
     void initPlugin(PluginAPI* pluginAPI);
 
-    virtual SamplingDevices enumSampleSources();
+	virtual void enumOriginDevices(QStringList& listedHwIds, OriginDevices& originDevices);
+	virtual SamplingDevices enumSampleSources(const OriginDevices& originDevices);
     virtual PluginInstanceGUI* createSampleSourcePluginInstanceGUI(
             const QString& sourceId,
             QWidget **widget,
             DeviceUISet *deviceUISet);
-    virtual DeviceSampleSource* createSampleSourcePluginInstanceInput(const QString& sourceId, DeviceAPI *deviceAPI);
+    virtual DeviceSampleSource* createSampleSourcePluginInstance(const QString& sourceId, DeviceAPI *deviceAPI);
+    virtual DeviceWebAPIAdapter* createDeviceWebAPIAdapter() const;
 
     static const QString m_hardwareID;
     static const QString m_deviceTypeID;
 
 private:
     static const PluginDescriptor m_pluginDescriptor;
-    static bool findSerial(const char *lmsInfoStr, std::string& serial);
 };
 
 

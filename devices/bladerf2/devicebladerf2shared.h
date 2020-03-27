@@ -21,8 +21,6 @@
 #include "util/message.h"
 #include "devicebladerf2.h"
 
-class SampleSinkFifo;
-class SampleSourceFifo;
 class BladeRF2Input;
 class BladeRF2Output;
 
@@ -87,9 +85,7 @@ public:
     BladeRF2Input *m_source;
     BladeRF2Output *m_sink;
 
-    static const float m_sampleFifoLengthInSeconds;
-    static const int   m_sampleFifoMinSize;
-    static const int   m_sampleFifoMinSize32;
+    static const unsigned int m_sampleFifoMinRate;
 };
 
 

@@ -22,18 +22,18 @@
 #include <QMutex>
 #include <QWaitCondition>
 
-#include "dsp/samplesourcefifo.h"
 #include "dsp/interpolators.h"
 #include "plutosdr/deviceplutosdrshared.h"
 
 class DevicePlutoSDRBox;
+class SampleSourceFifo;
 
 class PlutoSDROutputThread : public QThread, public DevicePlutoSDRShared::ThreadInterface
 {
     Q_OBJECT
 
 public:
-    PlutoSDROutputThread(uint32_t blocksize, DevicePlutoSDRBox* plutoBox, SampleSourceFifo* sampleFifo, QObject* parent = 0);
+    PlutoSDROutputThread(uint32_t blocksize, DevicePlutoSDRBox* plutoBox, SampleSourceFifo* sampleFifo, QObject* parent = nullptr);
     ~PlutoSDROutputThread();
 
     virtual void startWork();
@@ -59,6 +59,7 @@ private:
 
     void run();
     void convert(qint16* buf, qint32 len);
+    void convertPart(qint16* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd);
 
 };
 

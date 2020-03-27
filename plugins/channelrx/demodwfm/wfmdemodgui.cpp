@@ -1,7 +1,6 @@
 #include "wfmdemodgui.h"
 
 #include "device/deviceuiset.h"
-#include "dsp/downchannelizer.h"
 
 #include <QDockWidget>
 #include <QMainWindow>
@@ -13,6 +12,7 @@
 #include "util/simpleserializer.h"
 #include "util/db.h"
 #include "gui/basicchannelsettingsdialog.h"
+#include "gui/devicestreamselectiondialog.h"
 #include "gui/crightclickenabler.h"
 #include "gui/audioselectdialog.h"
 #include "mainwindow.h"
@@ -126,10 +126,10 @@ void WFMDemodGUI::on_deltaFrequency_changed(qint64 value)
     applySettings();
 }
 
-void WFMDemodGUI::on_rfBW_currentIndexChanged(int index)
+void WFMDemodGUI::on_rfBW_changed(quint64 value)
 {
-    m_channelMarker.setBandwidth(WFMDemodSettings::getRFBW(index));
-    m_settings.m_rfBandwidth = WFMDemodSettings::getRFBW(index);
+    m_channelMarker.setBandwidth(value);
+    m_settings.m_rfBandwidth = value;
     applySettings();
 }
 
@@ -194,6 +194,20 @@ void WFMDemodGUI::onMenuDialogCalled(const QPoint &p)
 
         applySettings();
     }
+    else if ((m_contextMenuType == ContextMenuStreamSettings) && (m_deviceUISet->m_deviceMIMOEngine))
+    {
+        DeviceStreamSelectionDialog dialog(this);
+        dialog.setNumberOfStreams(m_wfmDemod->getNumberOfDeviceStreams());
+        dialog.setStreamIndex(m_settings.m_streamIndex);
+        dialog.move(p);
+        dialog.exec();
+
+        m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+        m_channelMarker.clearStreamIndexes();
+        m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+        displayStreamIndex();
+        applySettings();
+    }
 
     resetContextMenuType();
 }
@@ -225,16 +239,11 @@ WFMDemodGUI::WFMDemodGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, Baseban
     ui->deltaFrequency->setValueRange(false, 7, -9999999, 9999999);
     ui->channelPowerMeter->setColorTheme(LevelMeterSignalDB::ColorGreenAndBlue);
 
-    blockApplySettings(true);
-    ui->rfBW->clear();
-    for (int i = 0; i < WFMDemodSettings::m_nbRFBW; i++) {
-        ui->rfBW->addItem(QString("%1").arg(WFMDemodSettings::getRFBW(i) / 1000.0, 0, 'f', 2));
-    }
-    ui->rfBW->setCurrentIndex(6);
-    blockApplySettings(false);
+    ui->rfBW->setColorMapper(ColorMapper(ColorMapper::GrayYellow));
+    ui->rfBW->setValueRange(WFMDemodSettings::m_rfBWDigits, WFMDemodSettings::m_rfBWMin, WFMDemodSettings::m_rfBWMax);
 
     m_channelMarker.blockSignals(true);
-	m_channelMarker.setBandwidth(WFMDemodSettings::getRFBW(4));
+	m_channelMarker.setBandwidth(m_settings.m_rfBandwidth);
 	m_channelMarker.setCenterFrequency(0);
     m_channelMarker.setTitle("WFM Demodulator");
     m_channelMarker.setColor(m_settings.m_rgbColor);
@@ -272,11 +281,6 @@ void WFMDemodGUI::applySettings(bool force)
 {
 	if (m_doApplySettings)
 	{
-        WFMDemod::MsgConfigureChannelizer *msgChan = WFMDemod::MsgConfigureChannelizer::create(
-                WFMDemod::requiredBW(WFMDemodSettings::getRFBW(ui->rfBW->currentIndex())),
-                m_channelMarker.getCenterFrequency());
-        m_wfmDemod->getInputMessageQueue()->push(msgChan);
-
         WFMDemod::MsgConfigureWFMDemod* msgConfig = WFMDemod::MsgConfigureWFMDemod::create( m_settings, force);
         m_wfmDemod->getInputMessageQueue()->push(msgConfig);
 	}
@@ -297,21 +301,27 @@ void WFMDemodGUI::displaySettings()
     blockApplySettings(true);
 
     ui->deltaFrequency->setValue(m_channelMarker.getCenterFrequency());
-
-    ui->rfBW->setCurrentIndex(WFMDemodSettings::getRFBWIndex(m_settings.m_rfBandwidth));
-
+    ui->rfBW->setValue(m_settings.m_rfBandwidth);
     ui->afBW->setValue(m_settings.m_afBandwidth/1000.0);
     ui->afBWText->setText(QString("%1 kHz").arg(m_settings.m_afBandwidth/1000.0));
-
     ui->volume->setValue(m_settings.m_volume * 10.0);
     ui->volumeText->setText(QString("%1").arg(m_settings.m_volume, 0, 'f', 1));
-
     ui->squelch->setValue(m_settings.m_squelch);
     ui->squelchText->setText(QString("%1 dB").arg(m_settings.m_squelch));
-
     ui->audioMute->setChecked(m_settings.m_audioMute);
 
+    displayStreamIndex();
+
     blockApplySettings(false);
+}
+
+void WFMDemodGUI::displayStreamIndex()
+{
+    if (m_deviceUISet->m_deviceMIMOEngine) {
+        setStreamIndicator(tr("%1").arg(m_settings.m_streamIndex));
+    } else {
+        setStreamIndicator("S"); // single channel indicator
+    }
 }
 
 void WFMDemodGUI::leaveEvent(QEvent*)

@@ -53,7 +53,7 @@ XTRXOutput::XTRXOutput(DeviceAPI *deviceAPI) :
     m_running(false)
 {
     openDevice();
-
+    m_deviceAPI->setNbSinkStreams(1);
     m_networkManager = new QNetworkAccessManager();
     connect(m_networkManager, SIGNAL(finished(QNetworkReply*)), this, SLOT(networkManagerFinished(QNetworkReply*)));
 }
@@ -77,7 +77,7 @@ void XTRXOutput::destroy()
 
 bool XTRXOutput::openDevice()
 {
-    m_sampleSourceFifo.resize(m_settings.m_devSampleRate/(1<<(m_settings.m_log2SoftInterp <= 4 ? m_settings.m_log2SoftInterp : 4)));
+    m_sampleSourceFifo.resize(SampleSourceFifo::getSizePolicy(m_settings.m_devSampleRate));
 
     // look for Tx buddies and get reference to the device object
     if (m_deviceAPI->getSinkBuddies().size() > 0) // then sink
@@ -143,7 +143,7 @@ bool XTRXOutput::openDevice()
         }
     }
 
-    m_deviceShared.m_channel = m_deviceAPI->getItemIndex(); // publicly allocate channel
+    m_deviceShared.m_channel = m_deviceAPI->getDeviceItemIndex(); // publicly allocate channel
     m_deviceShared.m_sink = this;
     m_deviceAPI->setBuddySharedPtr(&m_deviceShared); // propagate common parameters to API
     return true;
@@ -262,7 +262,7 @@ bool XTRXOutput::start()
         return false;
     }
 
-    int requestedChannel = m_deviceAPI->getItemIndex();
+    int requestedChannel = m_deviceAPI->getDeviceItemIndex();
     XTRXOutputThread *xtrxOutputThread = findThread();
     bool needsStart = false;
 
@@ -361,7 +361,7 @@ void XTRXOutput::stop()
         return;
     }
 
-    int removedChannel = m_deviceAPI->getItemIndex(); // channel to remove
+    int removedChannel = m_deviceAPI->getDeviceItemIndex(); // channel to remove
     int requestedChannel = removedChannel ^ 1; // channel to keep (opposite channel)
     XTRXOutputThread *xtrxOutputThread = findThread();
 
@@ -756,7 +756,7 @@ bool XTRXOutput::handleMessage(const Message& message)
 
 bool XTRXOutput::applySettings(const XTRXOutputSettings& settings, bool force, bool forceNCOFrequency)
 {
-    int requestedChannel = m_deviceAPI->getItemIndex();
+    int requestedChannel = m_deviceAPI->getDeviceItemIndex();
     XTRXOutputThread *outputThread = findThread();
     QList<QString> reverseAPIKeys;
 
@@ -907,6 +907,15 @@ bool XTRXOutput::applySettings(const XTRXOutputSettings& settings, bool force, b
             outputThread->setLog2Interpolation(requestedChannel, settings.m_log2SoftInterp);
             qDebug() << "XTRXOutput::applySettings: set soft interpolation to " << (1<<settings.m_log2SoftInterp);
         }
+    }
+
+    if ((m_settings.m_devSampleRate != settings.m_devSampleRate)
+     || (m_settings.m_log2SoftInterp != settings.m_log2SoftInterp) || force)
+    {
+        unsigned int fifoRate = std::max(
+            (unsigned int) settings.m_devSampleRate / (1<<settings.m_log2SoftInterp),
+            DeviceXTRXShared::m_sampleFifoMinRate);
+        m_sampleSourceFifo.resize(SampleSourceFifo::getSizePolicy(fifoRate));
     }
 
     if ((m_settings.m_antennaPath != settings.m_antennaPath) || force)
@@ -1185,7 +1194,26 @@ int XTRXOutput::webapiSettingsPutPatch(
 {
     (void) errorMessage;
     XTRXOutputSettings settings = m_settings;
+    webapiUpdateDeviceSettings(settings, deviceSettingsKeys, response);
 
+    MsgConfigureXTRX *msg = MsgConfigureXTRX::create(settings, force);
+    m_inputMessageQueue.push(msg);
+
+    if (m_guiMessageQueue) // forward to GUI if any
+    {
+        MsgConfigureXTRX *msgToGUI = MsgConfigureXTRX::create(settings, force);
+        m_guiMessageQueue->push(msgToGUI);
+    }
+
+    webapiFormatDeviceSettings(response, settings);
+    return 200;
+}
+
+void XTRXOutput::webapiUpdateDeviceSettings(
+        XTRXOutputSettings& settings,
+        const QStringList& deviceSettingsKeys,
+        SWGSDRangel::SWGDeviceSettings& response)
+{
     if (deviceSettingsKeys.contains("centerFrequency")) {
         settings.m_centerFrequency = response.getXtrxOutputSettings()->getCenterFrequency();
     }
@@ -1234,18 +1262,6 @@ int XTRXOutput::webapiSettingsPutPatch(
     if (deviceSettingsKeys.contains("reverseAPIDeviceIndex")) {
         settings.m_reverseAPIDeviceIndex = response.getXtrxOutputSettings()->getReverseApiDeviceIndex();
     }
-
-    MsgConfigureXTRX *msg = MsgConfigureXTRX::create(settings, force);
-    m_inputMessageQueue.push(msg);
-
-    if (m_guiMessageQueue) // forward to GUI if any
-    {
-        MsgConfigureXTRX *msgToGUI = MsgConfigureXTRX::create(settings, force);
-        m_guiMessageQueue->push(msgToGUI);
-    }
-
-    webapiFormatDeviceSettings(response, settings);
-    return 200;
 }
 
 void XTRXOutput::webapiFormatDeviceSettings(SWGSDRangel::SWGDeviceSettings& response, const XTRXOutputSettings& settings)
@@ -1393,13 +1409,14 @@ void XTRXOutput::webapiReverseSendSettings(QList<QString>& deviceSettingsKeys, c
     m_networkRequest.setUrl(QUrl(deviceSettingsURL));
     m_networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-    QBuffer *buffer=new QBuffer();
+    QBuffer *buffer = new QBuffer();
     buffer->open((QBuffer::ReadWrite));
     buffer->write(swgDeviceSettings->asJson().toUtf8());
     buffer->seek(0);
 
     // Always use PATCH to avoid passing reverse API settings
-    m_networkManager->sendCustomRequest(m_networkRequest, "PATCH", buffer);
+    QNetworkReply *reply = m_networkManager->sendCustomRequest(m_networkRequest, "PATCH", buffer);
+    buffer->setParent(reply);
 
     delete swgDeviceSettings;
 }
@@ -1418,16 +1435,20 @@ void XTRXOutput::webapiReverseSendStartStop(bool start)
     m_networkRequest.setUrl(QUrl(deviceSettingsURL));
     m_networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-    QBuffer *buffer=new QBuffer();
+    QBuffer *buffer = new QBuffer();
     buffer->open((QBuffer::ReadWrite));
     buffer->write(swgDeviceSettings->asJson().toUtf8());
     buffer->seek(0);
+    QNetworkReply *reply;
 
     if (start) {
-        m_networkManager->sendCustomRequest(m_networkRequest, "POST", buffer);
+        reply = m_networkManager->sendCustomRequest(m_networkRequest, "POST", buffer);
     } else {
-        m_networkManager->sendCustomRequest(m_networkRequest, "DELETE", buffer);
+        reply = m_networkManager->sendCustomRequest(m_networkRequest, "DELETE", buffer);
     }
+
+    buffer->setParent(reply);
+    delete swgDeviceSettings;
 }
 
 void XTRXOutput::networkManagerFinished(QNetworkReply *reply)
@@ -1440,10 +1461,13 @@ void XTRXOutput::networkManagerFinished(QNetworkReply *reply)
                 << " error(" << (int) replyError
                 << "): " << replyError
                 << ": " << reply->errorString();
-        return;
+    }
+    else
+    {
+        QString answer = reply->readAll();
+        answer.chop(1); // remove last \n
+        qDebug("XTRXOutput::networkManagerFinished: reply:\n%s", answer.toStdString().c_str());
     }
 
-    QString answer = reply->readAll();
-    answer.chop(1); // remove last \n
-    qDebug("XTRXOutput::networkManagerFinished: reply:\n%s", answer.toStdString().c_str());
+    reply->deleteLater();
 }

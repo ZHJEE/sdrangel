@@ -27,7 +27,8 @@ HackRFOutputThread::HackRFOutputThread(hackrf_device* dev, SampleSourceFifo* sam
 	m_running(false),
 	m_dev(dev),
 	m_sampleFifo(sampleFifo),
-	m_log2Interp(0)
+	m_log2Interp(0),
+    m_fcPos(2)
 {
     std::fill(m_buf, m_buf + 2*HACKRF_BLOCKSIZE, 0);
 }
@@ -117,9 +118,25 @@ void HackRFOutputThread::run()
 //  Interpolate according to specified log2 (ex: log2=4 => interp=16)
 void HackRFOutputThread::callback(qint8* buf, qint32 len)
 {
-    SampleVector::iterator beginRead;
-    m_sampleFifo->readAdvance(beginRead, len/(2*(1<<m_log2Interp)));
-    beginRead -= len/2;
+    SampleVector& data = m_sampleFifo->getData();
+    unsigned int iPart1Begin, iPart1End, iPart2Begin, iPart2End;
+    m_sampleFifo->read(len/(2*(1<<m_log2Interp)), iPart1Begin, iPart1End, iPart2Begin, iPart2End);
+
+    if (iPart1Begin != iPart1End) {
+        callbackPart(buf, data, iPart1Begin, iPart1End);
+    }
+
+    unsigned int shift = (iPart1End - iPart1Begin)*(1<<m_log2Interp);
+
+    if (iPart2Begin != iPart2End) {
+        callbackPart(buf + 2*shift, data, iPart2Begin, iPart2End);
+    }
+}
+
+void HackRFOutputThread::callbackPart(qint8* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd)
+{
+    SampleVector::iterator beginRead = data.begin() + iBegin;
+    int len = 2*(iEnd - iBegin)*(1<<m_log2Interp);
 
 	if (m_log2Interp == 0)
 	{

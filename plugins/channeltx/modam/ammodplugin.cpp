@@ -22,11 +22,13 @@
 #include "ammodgui.h"
 #endif
 #include "ammod.h"
+#include "ammodwebapiadapter.h"
 #include "ammodplugin.h"
 
 const PluginDescriptor AMModPlugin::m_pluginDescriptor = {
+    AMMod::m_channelId,
     QString("AM Modulator"),
-    QString("4.5.2"),
+    QString("4.12.3"),
     QString("(c) Edouard Griffiths, F4EXB"),
     QString("https://github.com/f4exb/sdrangel"),
     true,
@@ -54,25 +56,29 @@ void AMModPlugin::initPlugin(PluginAPI* pluginAPI)
 
 #ifdef SERVER_MODE
 PluginInstanceGUI* AMModPlugin::createTxChannelGUI(
-        DeviceUISet *deviceUISet __attribute__((unused)),
-        BasebandSampleSource *txChannel __attribute__((unused)))
+        DeviceUISet *deviceUISet,
+        BasebandSampleSource *txChannel) const
 {
     return 0;
 }
 #else
-PluginInstanceGUI* AMModPlugin::createTxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSource *txChannel)
+PluginInstanceGUI* AMModPlugin::createTxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSource *txChannel) const
 {
 	return AMModGUI::create(m_pluginAPI, deviceUISet, txChannel);
 }
 #endif
 
-BasebandSampleSource* AMModPlugin::createTxChannelBS(DeviceAPI *deviceAPI)
+BasebandSampleSource* AMModPlugin::createTxChannelBS(DeviceAPI *deviceAPI) const
 {
     return new AMMod(deviceAPI);
 }
 
-ChannelAPI* AMModPlugin::createTxChannelCS(DeviceAPI *deviceAPI)
+ChannelAPI* AMModPlugin::createTxChannelCS(DeviceAPI *deviceAPI) const
 {
     return new AMMod(deviceAPI);
 }
 
+ChannelWebAPIAdapter* AMModPlugin::createChannelWebAPIAdapter() const
+{
+	return new AMModWebAPIAdapter();
+}

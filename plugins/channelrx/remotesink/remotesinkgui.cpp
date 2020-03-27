@@ -19,7 +19,9 @@
 
 #include "device/deviceuiset.h"
 #include "gui/basicchannelsettingsdialog.h"
+#include "gui/devicestreamselectiondialog.h"
 #include "dsp/hbfilterchainconverter.h"
+#include "dsp/dspcommands.h"
 #include "mainwindow.h"
 
 #include "remotesinkgui.h"
@@ -82,22 +84,24 @@ bool RemoteSinkGUI::deserialize(const QByteArray& data)
 
 bool RemoteSinkGUI::handleMessage(const Message& message)
 {
-    if (RemoteSink::MsgSampleRateNotification::match(message))
-    {
-        RemoteSink::MsgSampleRateNotification& notif = (RemoteSink::MsgSampleRateNotification&) message;
-        //m_channelMarker.setBandwidth(notif.getSampleRate());
-        m_sampleRate = notif.getSampleRate();
-        updateTxDelayTime();
-        displayRateAndShift();
-        return true;
-    }
-    else if (RemoteSink::MsgConfigureRemoteSink::match(message))
+    if (RemoteSink::MsgConfigureRemoteSink::match(message))
     {
         const RemoteSink::MsgConfigureRemoteSink& cfg = (RemoteSink::MsgConfigureRemoteSink&) message;
         m_settings = cfg.getSettings();
         blockApplySettings(true);
         displaySettings();
         blockApplySettings(false);
+
+        return true;
+    }
+    else if (DSPSignalNotification::match(message))
+    {
+        DSPSignalNotification& cfg = (DSPSignalNotification&) message;
+        m_basebandSampleRate = cfg.getSampleRate();
+        qDebug("RemoteSinkGUI::handleMessage: DSPSignalNotification: m_basebandSampleRate: %d", m_basebandSampleRate);
+        updateTxDelayTime();
+        displayRateAndShift();
+
         return true;
     }
     else
@@ -111,7 +115,7 @@ RemoteSinkGUI::RemoteSinkGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, Bas
         ui(new Ui::RemoteSinkGUI),
         m_pluginAPI(pluginAPI),
         m_deviceUISet(deviceUISet),
-        m_sampleRate(0),
+        m_basebandSampleRate(0),
         m_tickCount(0)
 {
     ui->setupUi(this);
@@ -121,6 +125,7 @@ RemoteSinkGUI::RemoteSinkGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, Bas
 
     m_remoteSink = (RemoteSink*) channelrx;
     m_remoteSink->setMessageQueueToGUI(getInputMessageQueue());
+    m_basebandSampleRate = m_remoteSink->getBasebandSampleRate();
 
     m_channelMarker.blockSignals(true);
     m_channelMarker.setColor(m_settings.m_rgbColor);
@@ -167,23 +172,12 @@ void RemoteSinkGUI::applySettings(bool force)
     }
 }
 
-void RemoteSinkGUI::applyChannelSettings()
-{
-    if (m_doApplySettings)
-    {
-        RemoteSink::MsgConfigureChannelizer *msgChan = RemoteSink::MsgConfigureChannelizer::create(
-                m_settings.m_log2Decim,
-                m_settings.m_filterChainHash);
-        m_remoteSink->getInputMessageQueue()->push(msgChan);
-    }
-}
-
 void RemoteSinkGUI::displaySettings()
 {
     m_channelMarker.blockSignals(true);
     m_channelMarker.setCenterFrequency(0);
     m_channelMarker.setTitle(m_settings.m_title);
-    m_channelMarker.setBandwidth(m_sampleRate); // TODO
+    m_channelMarker.setBandwidth(m_basebandSampleRate); // TODO
     m_channelMarker.setMovable(false); // do not let user move the center arbitrarily
     m_channelMarker.blockSignals(false);
     m_channelMarker.setColor(m_settings.m_rgbColor); // activate signal on the last setting only
@@ -202,13 +196,23 @@ void RemoteSinkGUI::displaySettings()
     ui->txDelay->setValue(m_settings.m_txDelay);
     updateTxDelayTime();
     applyDecimation();
+    displayStreamIndex();
     blockApplySettings(false);
+}
+
+void RemoteSinkGUI::displayStreamIndex()
+{
+    if (m_deviceUISet->m_deviceMIMOEngine) {
+        setStreamIndicator(tr("%1").arg(m_settings.m_streamIndex));
+    } else {
+        setStreamIndicator("S"); // single channel indicator
+    }
 }
 
 void RemoteSinkGUI::displayRateAndShift()
 {
-    int shift = m_shiftFrequencyFactor * m_sampleRate;
-    double channelSampleRate = ((double) m_sampleRate) / (1<<m_settings.m_log2Decim);
+    int shift = m_shiftFrequencyFactor * m_basebandSampleRate;
+    double channelSampleRate = ((double) m_basebandSampleRate) / (1<<m_settings.m_log2Decim);
     QLocale loc;
     ui->offsetFrequencyText->setText(tr("%1 Hz").arg(loc.toString(shift)));
     ui->channelRateText->setText(tr("%1k").arg(QString::number(channelSampleRate / 1000.0, 'g', 5)));
@@ -272,6 +276,20 @@ void RemoteSinkGUI::onMenuDialogCalled(const QPoint &p)
 
         applySettings();
     }
+    else if ((m_contextMenuType == ContextMenuStreamSettings) && (m_deviceUISet->m_deviceMIMOEngine))
+    {
+        DeviceStreamSelectionDialog dialog(this);
+        dialog.setNumberOfStreams(m_remoteSink->getNumberOfDeviceStreams());
+        dialog.setStreamIndex(m_settings.m_streamIndex);
+        dialog.move(p);
+        dialog.exec();
+
+        m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+        m_channelMarker.clearStreamIndexes();
+        m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+        displayStreamIndex();
+        applySettings();
+    }
 
     resetContextMenuType();
 }
@@ -279,6 +297,7 @@ void RemoteSinkGUI::onMenuDialogCalled(const QPoint &p)
 void RemoteSinkGUI::on_decimationFactor_currentIndexChanged(int index)
 {
     m_settings.m_log2Decim = index;
+    updateTxDelayTime();
     applyDecimation();
 }
 
@@ -351,7 +370,8 @@ void RemoteSinkGUI::updateTxDelayTime()
 {
     double txDelayRatio = m_settings.m_txDelay / 100.0;
     int samplesPerBlock = RemoteNbBytesPerBlock / sizeof(Sample);
-    double delay = m_sampleRate == 0 ? 0.0 : (127*samplesPerBlock*txDelayRatio) / m_sampleRate;
+    int channelSampleRate = m_basebandSampleRate / (1<<m_settings.m_log2Decim);
+    double delay = channelSampleRate == 0 ? 0.0 : (127*samplesPerBlock*txDelayRatio) / channelSampleRate;
     delay /= 128 + m_settings.m_nbFECBlocks;
     ui->txDelayTime->setText(tr("%1µs").arg(QString::number(delay*1e6, 'f', 0)));
 }
@@ -378,7 +398,7 @@ void RemoteSinkGUI::applyPosition()
     ui->filterChainText->setText(s);
 
     displayRateAndShift();
-    applyChannelSettings();
+    applySettings();
 }
 
 void RemoteSinkGUI::tick()

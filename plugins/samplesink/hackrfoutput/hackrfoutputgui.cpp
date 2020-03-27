@@ -229,6 +229,21 @@ void HackRFOutputGui::displaySampleRate()
     ui->sampleRate->blockSignals(false);
 }
 
+void HackRFOutputGui::updateFrequencyLimits()
+{
+    // values in kHz
+    qint64 deltaFrequency = m_settings.m_transverterMode ? m_settings.m_transverterDeltaFrequency/1000 : 0;
+    qint64 minLimit = (0U) + deltaFrequency;
+    qint64 maxLimit = (7250000U) + deltaFrequency;
+
+    minLimit = minLimit < 0 ? 0 : minLimit > 9999999 ? 9999999 : minLimit;
+    maxLimit = maxLimit < 0 ? 0 : maxLimit > 9999999 ? 9999999 : maxLimit;
+
+    qDebug("HackRFOutputGui::updateFrequencyLimits: delta: %lld min: %lld max: %lld", deltaFrequency, minLimit, maxLimit);
+
+    ui->centerFrequency->setValueRange(7, minLimit, maxLimit);
+}
+
 void HackRFOutputGui::displayFcTooltip()
 {
     int32_t fShift = DeviceSampleSink::calculateFrequencyShift(
@@ -301,10 +316,10 @@ void HackRFOutputGui::on_centerFrequency_changed(quint64 value)
 
 void HackRFOutputGui::on_sampleRate_changed(quint64 value)
 {
-    if (m_sampleRateMode) {
-        m_settings.m_devSampleRate = value;
-    } else {
-        m_settings.m_devSampleRate = value * (1 << m_settings.m_log2Interp);
+    m_settings.m_devSampleRate = value;
+
+    if (!m_sampleRateMode) {
+        m_settings.m_devSampleRate <<= m_settings.m_log2Interp;
     }
 
     displayFcTooltip();
@@ -345,11 +360,10 @@ void HackRFOutputGui::on_interp_currentIndexChanged(int index)
 
 	m_settings.m_log2Interp = index;
     displaySampleRate();
+    m_settings.m_devSampleRate = ui->sampleRate->getValueNew();
 
-    if (m_sampleRateMode) {
-        m_settings.m_devSampleRate = ui->sampleRate->getValueNew();
-    } else {
-        m_settings.m_devSampleRate = ui->sampleRate->getValueNew() * (1 << m_settings.m_log2Interp);
+    if (!m_sampleRateMode) {
+        m_settings.m_devSampleRate <<= m_settings.m_log2Interp;
     }
 
 	sendSettings();
@@ -385,6 +399,16 @@ void HackRFOutputGui::on_sampleRateMode_toggled(bool checked)
 {
     m_sampleRateMode = checked;
     displaySampleRate();
+}
+
+void HackRFOutputGui::on_transverter_clicked()
+{
+    m_settings.m_transverterMode = ui->transverter->getDeltaFrequencyAcive();
+    m_settings.m_transverterDeltaFrequency = ui->transverter->getDeltaFrequency();
+    qDebug("HackRFOutputGui::on_transverter_clicked: %lld Hz %s", m_settings.m_transverterDeltaFrequency, m_settings.m_transverterMode ? "on" : "off");
+    updateFrequencyLimits();
+    m_settings.m_centerFrequency = ui->centerFrequency->getValueNew()*1000;
+    sendSettings();
 }
 
 void HackRFOutputGui::updateHardware()

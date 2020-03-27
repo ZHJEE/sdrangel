@@ -48,6 +48,57 @@ DeviceBladeRF2::~DeviceBladeRF2()
     }
 }
 
+void DeviceBladeRF2::enumOriginDevices(const QString& hardwareId, PluginInterface::OriginDevices& originDevices)
+{
+    struct bladerf_devinfo *devinfo = 0;
+
+    int count = bladerf_get_device_list(&devinfo);
+
+    if (devinfo)
+    {
+        for(int i = 0; i < count; i++)
+        {
+            struct bladerf *dev;
+
+            int status = bladerf_open_with_devinfo(&dev, &devinfo[i]);
+
+            if (status == BLADERF_ERR_NODEV)
+            {
+                qCritical("DeviceBladeRF2::enumOriginDevices: No device at index %d", i);
+                continue;
+            }
+            else if (status != 0)
+            {
+                qCritical("DeviceBladeRF2::enumOriginDevices: Failed to open device at index %d", i);
+                continue;
+            }
+
+            const char *boardName = bladerf_get_board_name(dev);
+
+            if (strcmp(boardName, "bladerf2") == 0)
+            {
+                unsigned int nbRxChannels = bladerf_get_channel_count(dev, BLADERF_RX);
+                unsigned int nbTxChannels = bladerf_get_channel_count(dev, BLADERF_TX);
+                // make the stream index a placeholder for future arg() hence the arg("%1")
+                QString displayableName(QString("BladeRF2[%1:$1] %2").arg(devinfo[i].instance).arg(devinfo[i].serial));
+
+                originDevices.append(PluginInterface::OriginDevice(
+                    displayableName,
+                    hardwareId,
+                    QString(devinfo[i].serial),
+                    i, // Sequence
+                    nbRxChannels,
+                    nbTxChannels
+                ));
+            }
+
+            bladerf_close(dev);
+        }
+
+        bladerf_free_device_list(devinfo); // Valgrind memcheck
+    }
+}
+
 bool DeviceBladeRF2::open(const char *serial)
 {
     int fpga_loaded;
@@ -454,13 +505,13 @@ int DeviceBladeRF2::getGainModesRx(const bladerf_gain_modes **modes)
 {
     if (m_dev)
     {
-        int n = bladerf_get_gain_modes(m_dev, BLADERF_CHANNEL_RX(0), 0);
+        // int n = bladerf_get_gain_modes(m_dev, BLADERF_CHANNEL_RX(0), 0); // does not work anymore with libbladerf 2.2.1
 
-        if (n < 0)
-        {
-            qCritical("DeviceBladeRF2::getGainModesRx: Failed to get the number of Rx gain modes: %s", bladerf_strerror(n));
-            return 0;
-        }
+        // if (n < 0)
+        // {
+        //     qCritical("DeviceBladeRF2::getGainModesRx: Failed to get the number of Rx gain modes: %s", bladerf_strerror(n));
+        //     return 0;
+        // }
 
         int status = bladerf_get_gain_modes(m_dev, BLADERF_CHANNEL_RX(0), modes);
 
@@ -471,7 +522,7 @@ int DeviceBladeRF2::getGainModesRx(const bladerf_gain_modes **modes)
         }
         else
         {
-            return n;
+            return status; // This is the number of gain modes (libbladerf 2.2.1)
         }
     }
     else

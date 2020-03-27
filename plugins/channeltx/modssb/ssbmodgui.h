@@ -90,7 +90,7 @@ private:
     void applySettings(bool force = false);
     void applyBandwidths(int spanLog2, bool force = false);
     void displaySettings();
-    void displayAGCPowerThreshold();
+    void displayStreamIndex();
     void updateWithStreamData();
     void updateWithStreamTime();
     void channelMarkerUpdate();
@@ -114,11 +114,6 @@ private slots:
     void on_toneFrequency_valueChanged(int value);
     void on_mic_toggled(bool checked);
     void on_agc_toggled(bool checked);
-    void on_agcOrder_valueChanged(int value);
-    void on_agcTime_valueChanged(int value);
-    void on_agcThreshold_valueChanged(int value);
-    void on_agcThresholdGate_valueChanged(int value);
-    void on_agcThresholdDelay_valueChanged(int value);
     void on_play_toggled(bool checked);
     void on_playLoop_toggled(bool checked);
     void on_morseKeyer_toggled(bool checked);
@@ -126,11 +121,15 @@ private slots:
     void on_navTimeSlider_valueChanged(int value);
     void on_showFileDialog_clicked(bool checked);
 
+    void on_feedbackEnable_toggled(bool checked);
+    void on_feedbackVolume_valueChanged(int value);
+
     void onWidgetRolled(QWidget* widget, bool rollDown);
     void onMenuDialogCalled(const QPoint& p);
 
     void configureFileName();
     void audioSelect();
+    void audioFeedbackSelect();
     void tick();
 };
 

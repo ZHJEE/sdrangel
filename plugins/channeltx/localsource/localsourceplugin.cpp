@@ -24,10 +24,13 @@
 #include "localsourcegui.h"
 #endif
 #include "localsource.h"
+#include "localsourcewebapiadapter.h"
+#include "localsourceplugin.h"
 
 const PluginDescriptor LocalSourcePlugin::m_pluginDescriptor = {
+    LocalSource::m_channelId,
     QString("Local channel source"),
-    QString("4.8.0"),
+    QString("4.12.3"),
     QString("(c) Edouard Griffiths, F4EXB"),
     QString("https://github.com/f4exb/sdrangel"),
     true,
@@ -55,24 +58,29 @@ void LocalSourcePlugin::initPlugin(PluginAPI* pluginAPI)
 
 #ifdef SERVER_MODE
 PluginInstanceGUI* LocalSourcePlugin::createTxChannelGUI(
-        DeviceUISet *deviceUISet __attribute__((unused)),
-        BasebandSampleSource *txChannel __attribute__((unused)))
+        DeviceUISet *deviceUISet,
+        BasebandSampleSource *txChannel) const
 {
     return 0;
 }
 #else
-PluginInstanceGUI* LocalSourcePlugin::createTxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSource *txChannel)
+PluginInstanceGUI* LocalSourcePlugin::createTxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSource *txChannel) const
 {
     return LocalSourceGUI::create(m_pluginAPI, deviceUISet, txChannel);
 }
 #endif
 
-BasebandSampleSource* LocalSourcePlugin::createTxChannelBS(DeviceAPI *deviceAPI)
+BasebandSampleSource* LocalSourcePlugin::createTxChannelBS(DeviceAPI *deviceAPI) const
 {
     return new LocalSource(deviceAPI);
 }
 
-ChannelAPI* LocalSourcePlugin::createTxChannelCS(DeviceAPI *deviceAPI)
+ChannelAPI* LocalSourcePlugin::createTxChannelCS(DeviceAPI *deviceAPI) const
 {
     return new LocalSource(deviceAPI);
+}
+
+ChannelWebAPIAdapter* LocalSourcePlugin::createChannelWebAPIAdapter() const
+{
+	return new LocalSourceWebAPIAdapter();
 }

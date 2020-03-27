@@ -20,6 +20,8 @@
 
 #include <QByteArray>
 
+#include "dsp/cwkeyersettings.h"
+
 class Serializable;
 
 struct WFMModSettings
@@ -47,7 +49,8 @@ struct WFMModSettings
     quint32 m_rgbColor;
     QString m_title;
     WFMModInputAF m_modAFInput;
-    QString m_audioDeviceName;
+    QString m_audioDeviceName;         //!< This is the audio device you get the audio samples from
+    int m_streamIndex;
     bool m_useReverseAPI;
     QString m_reverseAPIAddress;
     uint16_t m_reverseAPIPort;
@@ -57,12 +60,16 @@ struct WFMModSettings
     Serializable *m_channelMarker;
     Serializable *m_cwKeyerGUI;
 
+    CWKeyerSettings m_cwKeyerSettings; //!< For standalone deserialize operation (without m_cwKeyerGUI)
+
     WFMModSettings();
     void resetToDefaults();
     void setChannelMarker(Serializable *channelMarker) { m_channelMarker = channelMarker; }
     void setCWKeyerGUI(Serializable *cwKeyerGUI) { m_cwKeyerGUI = cwKeyerGUI; }
     QByteArray serialize() const;
     bool deserialize(const QByteArray& data);
+    const CWKeyerSettings& getCWKeyerSettings() const { return m_cwKeyerSettings; }
+    void setCWKeyerSettings(const CWKeyerSettings& cwKeyerSettings) { m_cwKeyerSettings = cwKeyerSettings; }
 
     static int getRFBW(int index);
     static int getRFBWIndex(int rfbw);

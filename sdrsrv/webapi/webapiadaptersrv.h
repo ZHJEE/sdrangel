@@ -41,6 +41,17 @@ public:
             SWGSDRangel::SWGSuccessResponse& response,
             SWGSDRangel::SWGErrorResponse& error);
 
+    virtual int instanceConfigGet(
+            SWGSDRangel::SWGInstanceConfigResponse& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
+    virtual int instanceConfigPutPatch(
+            bool force, // PUT else PATCH
+            SWGSDRangel::SWGInstanceConfigResponse& query,
+            const ConfigKeys& configKeys,
+            SWGSDRangel::SWGSuccessResponse& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
     virtual int instanceDevices(
             int direction,
             SWGSDRangel::SWGInstanceDevicesResponse& response,
@@ -99,13 +110,61 @@ public:
             SWGSDRangel::SWGErrorResponse& error);
 
     virtual int instanceDVSerialGet(
-            SWGSDRangel::SWGDVSeralDevices& response,
+            SWGSDRangel::SWGDVSerialDevices& response,
             SWGSDRangel::SWGErrorResponse& error);
 
     virtual int instanceDVSerialPatch(
             bool dvserial,
-            SWGSDRangel::SWGDVSeralDevices& response,
+            SWGSDRangel::SWGDVSerialDevices& response,
             SWGSDRangel::SWGErrorResponse& error);
+
+    virtual int instanceAMBESerialGet(
+            SWGSDRangel::SWGDVSerialDevices& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
+    virtual int instanceAMBEDevicesGet(
+            SWGSDRangel::SWGAMBEDevices& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
+    virtual int instanceAMBEDevicesPut(
+            SWGSDRangel::SWGAMBEDevices& query,
+            SWGSDRangel::SWGAMBEDevices& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
+    virtual int instanceAMBEDevicesPatch(
+            SWGSDRangel::SWGAMBEDevices& query,
+            SWGSDRangel::SWGAMBEDevices& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
+    virtual int instanceAMBEDevicesDelete(
+            SWGSDRangel::SWGSuccessResponse& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
+#ifdef HAS_LIMERFEUSB
+    virtual int instanceLimeRFESerialGet(
+            SWGSDRangel::SWGLimeRFEDevices& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
+    virtual int instanceLimeRFEConfigGet(
+            const QString& serial,
+            SWGSDRangel::SWGLimeRFESettings& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
+    virtual int instanceLimeRFEConfigPut(
+            SWGSDRangel::SWGLimeRFESettings& query,
+            SWGSDRangel::SWGSuccessResponse& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
+    virtual int instanceLimeRFERunPut(
+            SWGSDRangel::SWGLimeRFESettings& query,
+            SWGSDRangel::SWGSuccessResponse& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
+    virtual int instanceLimeRFEPowerGet(
+            const QString& serial,
+            SWGSDRangel::SWGLimeRFEPower& response,
+            SWGSDRangel::SWGErrorResponse& error);
+#endif
 
     virtual int instancePresetFilePut(
             SWGSDRangel::SWGPresetImport& query,
@@ -174,6 +233,13 @@ public:
             SWGSDRangel::SWGDeviceSettings& response,
             SWGSDRangel::SWGErrorResponse& error);
 
+    virtual int devicesetDeviceActionsPost(
+            int deviceSetIndex,
+            const QStringList& deviceActionsKeys,
+            SWGSDRangel::SWGDeviceActions& query,
+            SWGSDRangel::SWGSuccessResponse& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
     virtual int devicesetDeviceSettingsPutPatch(
             int deviceSetIndex,
             bool force,
@@ -193,6 +259,24 @@ public:
 
     virtual int devicesetDeviceRunDelete(
             int deviceSetIndex,
+            SWGSDRangel::SWGDeviceState& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
+    virtual int devicesetDeviceSubsystemRunGet(
+            int deviceSetIndex,
+            int subsystemIndex,
+            SWGSDRangel::SWGDeviceState& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
+    virtual int devicesetDeviceSubsystemRunPost(
+            int deviceSetIndex,
+            int subsystemIndex,
+            SWGSDRangel::SWGDeviceState& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
+    virtual int devicesetDeviceSubsystemRunDelete(
+            int deviceSetIndex,
+            int subsystemIndex,
             SWGSDRangel::SWGDeviceState& response,
             SWGSDRangel::SWGErrorResponse& error);
 
@@ -222,6 +306,14 @@ public:
             int deviceSetIndex,
             int channelIndex,
             SWGSDRangel::SWGChannelSettings& response,
+            SWGSDRangel::SWGErrorResponse& error);
+
+    virtual int devicesetChannelActionsPost(
+            int deviceSetIndex,
+            int channelIndex,
+            const QStringList& channelActionsKeys,
+            SWGSDRangel::SWGChannelActions& query,
+            SWGSDRangel::SWGSuccessResponse& response,
             SWGSDRangel::SWGErrorResponse& error);
 
     virtual int devicesetChannelSettingsPutPatch(

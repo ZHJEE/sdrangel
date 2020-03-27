@@ -75,6 +75,7 @@ private:
     int16_t *m_buf;
 
 	void run();
+	void callbackPart(SampleVector& data, unsigned int iBegin, unsigned int iEnd);
 
 private slots:
 	void tick();

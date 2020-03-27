@@ -20,6 +20,7 @@
 #include "device/deviceapi.h"
 #include "device/deviceuiset.h"
 #include "gui/basicchannelsettingsdialog.h"
+#include "gui/devicestreamselectiondialog.h"
 #include "mainwindow.h"
 
 #include "remotesource.h"
@@ -81,13 +82,7 @@ bool RemoteSourceGUI::deserialize(const QByteArray& data)
 
 bool RemoteSourceGUI::handleMessage(const Message& message)
 {
-    if (RemoteSource::MsgSampleRateNotification::match(message))
-    {
-        RemoteSource::MsgSampleRateNotification& notif = (RemoteSource::MsgSampleRateNotification&) message;
-        m_channelMarker.setBandwidth(notif.getSampleRate());
-        return true;
-    }
-    else if (RemoteSource::MsgConfigureRemoteSource::match(message))
+    if (RemoteSource::MsgConfigureRemoteSource::match(message))
     {
         const RemoteSource::MsgConfigureRemoteSource& cfg = (RemoteSource::MsgConfigureRemoteSource&) message;
         m_settings = cfg.getSettings();
@@ -99,7 +94,16 @@ bool RemoteSourceGUI::handleMessage(const Message& message)
     else if (RemoteSource::MsgReportStreamData::match(message))
     {
         const RemoteSource::MsgReportStreamData& report = (RemoteSource::MsgReportStreamData&) message;
-        ui->sampleRate->setText(QString("%1").arg(report.get_sampleRate()));
+
+        uint32_t remoteSampleRate = report.get_sampleRate();
+
+        if (remoteSampleRate != m_remoteSampleRate)
+        {
+            m_channelMarker.setBandwidth(remoteSampleRate);
+            m_remoteSampleRate = remoteSampleRate;
+        }
+
+        ui->sampleRate->setText(QString("%1").arg(remoteSampleRate));
         QString nominalNbBlocksText = QString("%1/%2")
                 .arg(report.get_nbOriginalBlocks() + report.get_nbFECBlocks())
                 .arg(report.get_nbFECBlocks());
@@ -160,6 +164,7 @@ RemoteSourceGUI::RemoteSourceGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet,
         ui(new Ui::RemoteSourceGUI),
         m_pluginAPI(pluginAPI),
         m_deviceUISet(deviceUISet),
+        m_remoteSampleRate(48000),
         m_countUnrecoverable(0),
         m_countRecovered(0),
         m_lastCountUnrecoverable(0),
@@ -184,6 +189,7 @@ RemoteSourceGUI::RemoteSourceGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet,
     m_channelMarker.setColor(m_settings.m_rgbColor);
     m_channelMarker.setCenterFrequency(0);
     m_channelMarker.setTitle("Remote source");
+    m_channelMarker.setSourceOrSinkStream(false);
     m_channelMarker.blockSignals(false);
     m_channelMarker.setVisible(true); // activate signal on the last setting only
 
@@ -230,17 +236,27 @@ void RemoteSourceGUI::displaySettings()
     m_channelMarker.blockSignals(true);
     m_channelMarker.setCenterFrequency(0);
     m_channelMarker.setTitle(m_settings.m_title);
-    m_channelMarker.setBandwidth(5000); // TODO
+    m_channelMarker.setBandwidth(m_remoteSampleRate);
     m_channelMarker.blockSignals(false);
     m_channelMarker.setColor(m_settings.m_rgbColor); // activate signal on the last setting only
 
     setTitleColor(m_settings.m_rgbColor);
     setWindowTitle(m_channelMarker.getTitle());
+    displayStreamIndex();
 
     blockApplySettings(true);
     ui->dataAddress->setText(m_settings.m_dataAddress);
     ui->dataPort->setText(tr("%1").arg(m_settings.m_dataPort));
     blockApplySettings(false);
+}
+
+void RemoteSourceGUI::displayStreamIndex()
+{
+    if (m_deviceUISet->m_deviceMIMOEngine) {
+        setStreamIndicator(tr("%1").arg(m_settings.m_streamIndex));
+    } else {
+        setStreamIndicator("S"); // single channel indicator
+    }
 }
 
 void RemoteSourceGUI::leaveEvent(QEvent*)
@@ -297,6 +313,20 @@ void RemoteSourceGUI::onMenuDialogCalled(const QPoint &p)
         setWindowTitle(m_settings.m_title);
         setTitleColor(m_settings.m_rgbColor);
 
+        applySettings();
+    }
+    else if ((m_contextMenuType == ContextMenuStreamSettings) && (m_deviceUISet->m_deviceMIMOEngine))
+    {
+        DeviceStreamSelectionDialog dialog(this);
+        dialog.setNumberOfStreams(m_remoteSrc->getNumberOfDeviceStreams());
+        dialog.setStreamIndex(m_settings.m_streamIndex);
+        dialog.move(p);
+        dialog.exec();
+
+        m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+        m_channelMarker.clearStreamIndexes();
+        m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+        displayStreamIndex();
         applySettings();
     }
 

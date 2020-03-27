@@ -26,9 +26,11 @@
 #include "util/simpleserializer.h"
 #include "util/db.h"
 #include "dsp/dspengine.h"
+#include "dsp/cwkeyer.h"
 #include "gui/crightclickenabler.h"
 #include "gui/audioselectdialog.h"
 #include "gui/basicchannelsettingsdialog.h"
+#include "gui/devicestreamselectiondialog.h"
 #include "mainwindow.h"
 
 #include "ui_nfmmodgui.h"
@@ -118,7 +120,8 @@ bool NFMModGUI::handleMessage(const Message& message)
     else if (CWKeyer::MsgConfigureCWKeyer::match(message))
     {
         const CWKeyer::MsgConfigureCWKeyer& cfg = (CWKeyer::MsgConfigureCWKeyer&) message;
-        ui->cwKeyerGUI->displaySettings(cfg.getSettings());
+        ui->cwKeyerGUI->setSettings(cfg.getSettings());
+        ui->cwKeyerGUI->displaySettings();
         return true;
     }
     else
@@ -239,6 +242,19 @@ void NFMModGUI::on_mic_toggled(bool checked)
     applySettings();
 }
 
+void NFMModGUI::on_feedbackEnable_toggled(bool checked)
+{
+    m_settings.m_feedbackAudioEnable = checked;
+    applySettings();
+}
+
+void NFMModGUI::on_feedbackVolume_valueChanged(int value)
+{
+    ui->feedbackVolumeText->setText(QString("%1").arg(value / 100.0, 0, 'f', 2));
+    m_settings.m_feedbackVolumeFactor = value / 100.0;
+    applySettings();
+}
+
 void NFMModGUI::on_navTimeSlider_valueChanged(int value)
 {
     if (m_enableNavTime && ((value >= 0) && (value <= 100)))
@@ -320,6 +336,20 @@ void NFMModGUI::onMenuDialogCalled(const QPoint &p)
 
         applySettings();
     }
+    else if ((m_contextMenuType == ContextMenuStreamSettings) && (m_deviceUISet->m_deviceMIMOEngine))
+    {
+        DeviceStreamSelectionDialog dialog(this);
+        dialog.setNumberOfStreams(m_nfmMod->getNumberOfDeviceStreams());
+        dialog.setStreamIndex(m_settings.m_streamIndex);
+        dialog.move(p);
+        dialog.exec();
+
+        m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+        m_channelMarker.clearStreamIndexes();
+        m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+        displayStreamIndex();
+        applySettings();
+    }
 
     resetContextMenuType();
 }
@@ -361,6 +391,9 @@ NFMModGUI::NFMModGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, BasebandSam
     CRightClickEnabler *audioMuteRightClickEnabler = new CRightClickEnabler(ui->mic);
     connect(audioMuteRightClickEnabler, SIGNAL(rightClick(const QPoint &)), this, SLOT(audioSelect()));
 
+    CRightClickEnabler *feedbackRightClickEnabler = new CRightClickEnabler(ui->feedbackEnable);
+    connect(feedbackRightClickEnabler, SIGNAL(rightClick(const QPoint &)), this, SLOT(audioFeedbackSelect()));
+
     ui->deltaFrequencyLabel->setText(QString("%1f").arg(QChar(0x94, 0x03)));
     ui->deltaFrequency->setColorMapper(ColorMapper(ColorMapper::GrayGold));
     ui->deltaFrequency->setValueRange(false, 7, -9999999, 9999999);
@@ -370,6 +403,7 @@ NFMModGUI::NFMModGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, BasebandSam
     m_channelMarker.setBandwidth(12500);
     m_channelMarker.setCenterFrequency(0);
     m_channelMarker.setTitle("NFM Modulator");
+    m_channelMarker.setSourceOrSinkStream(false);
     m_channelMarker.blockSignals(false);
 	m_channelMarker.setVisible(true); // activate signal on the last setting only
 
@@ -389,10 +423,10 @@ NFMModGUI::NFMModGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, BasebandSam
         ui->ctcss->addItem(QString("%1").arg((double) NFMModSettings::getCTCSSFreq(i), 0, 'f', 1));
     }
 
-    ui->cwKeyerGUI->setBuddies(m_nfmMod->getInputMessageQueue(), m_nfmMod->getCWKeyer());
+    ui->cwKeyerGUI->setCWKeyer(m_nfmMod->getCWKeyer());
 
 	connect(getInputMessageQueue(), SIGNAL(messageEnqueued()), this, SLOT(handleSourceMessages()));
-	connect(m_nfmMod, SIGNAL(levelChanged(qreal, qreal, int)), ui->volumeMeter, SLOT(levelChanged(qreal, qreal, int)));
+    m_nfmMod->setLevelMeter(ui->volumeMeter);
 
     m_settings.setChannelMarker(&m_channelMarker);
     m_settings.setCWKeyerGUI(ui->cwKeyerGUI);
@@ -417,10 +451,6 @@ void NFMModGUI::applySettings(bool force)
 {
 	if (m_doApplySettings)
 	{
-		NFMMod::MsgConfigureChannelizer *msgChan = NFMMod::MsgConfigureChannelizer::create(
-		        48000, m_channelMarker.getCenterFrequency());
-		m_nfmMod->getInputMessageQueue()->push(msgChan);
-
 		NFMMod::MsgConfigureNFMMod *msg = NFMMod::MsgConfigureNFMMod::create(m_settings, force);
 		m_nfmMod->getInputMessageQueue()->push(msg);
 	}
@@ -437,6 +467,7 @@ void NFMModGUI::displaySettings()
 
     setTitleColor(m_settings.m_rgbColor);
     setWindowTitle(m_channelMarker.getTitle());
+    displayStreamIndex();
 
     blockApplySettings(true);
 
@@ -472,9 +503,21 @@ void NFMModGUI::displaySettings()
     ui->play->setChecked(m_settings.m_modAFInput == NFMModSettings::NFMModInputAF::NFMModInputFile);
     ui->morseKeyer->setChecked(m_settings.m_modAFInput == NFMModSettings::NFMModInputAF::NFMModInputCWTone);
 
+    ui->feedbackEnable->setChecked(m_settings.m_feedbackAudioEnable);
+    ui->feedbackVolume->setValue(roundf(m_settings.m_feedbackVolumeFactor * 100.0));
+    ui->feedbackVolumeText->setText(QString("%1").arg(m_settings.m_feedbackVolumeFactor, 0, 'f', 2));
+
     blockApplySettings(false);
 }
 
+void NFMModGUI::displayStreamIndex()
+{
+    if (m_deviceUISet->m_deviceMIMOEngine) {
+        setStreamIndicator(tr("%1").arg(m_settings.m_streamIndex));
+    } else {
+        setStreamIndicator("S"); // single channel indicator
+    }
+}
 
 void NFMModGUI::leaveEvent(QEvent*)
 {
@@ -495,6 +538,19 @@ void NFMModGUI::audioSelect()
     if (audioSelect.m_selected)
     {
         m_settings.m_audioDeviceName = audioSelect.m_audioDeviceName;
+        applySettings();
+    }
+}
+
+void NFMModGUI::audioFeedbackSelect()
+{
+    qDebug("NFMModGUI::audioFeedbackSelect");
+    AudioSelectDialog audioSelect(DSPEngine::instance()->getAudioDeviceManager(), m_settings.m_audioDeviceName, false); // false for output
+    audioSelect.exec();
+
+    if (audioSelect.m_selected)
+    {
+        m_settings.m_feedbackAudioDeviceName = audioSelect.m_audioDeviceName;
         applySettings();
     }
 }

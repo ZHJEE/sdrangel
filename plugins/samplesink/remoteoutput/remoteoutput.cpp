@@ -64,6 +64,7 @@ RemoteOutput::RemoteOutput(DeviceAPI *deviceAPI) :
 	m_nbSamplesSinceRateCorrection(0),
 	m_chunkSizeCorrection(0)
 {
+    m_deviceAPI->setNbSinkStreams(1);
     m_networkManager = new QNetworkAccessManager();
     connect(m_networkManager, SIGNAL(finished(QNetworkReply*)), this, SLOT(networkManagerFinished(QNetworkReply*)));
     connect(&m_masterTimer, SIGNAL(timeout()), this, SLOT(tick()));
@@ -384,7 +385,26 @@ int RemoteOutput::webapiSettingsPutPatch(
 {
     (void) errorMessage;
     RemoteOutputSettings settings = m_settings;
+    webapiUpdateDeviceSettings(settings, deviceSettingsKeys, response);
 
+    MsgConfigureRemoteOutput *msg = MsgConfigureRemoteOutput::create(settings, force);
+    m_inputMessageQueue.push(msg);
+
+    if (m_guiMessageQueue) // forward to GUI if any
+    {
+        MsgConfigureRemoteOutput *msgToGUI = MsgConfigureRemoteOutput::create(settings, force);
+        m_guiMessageQueue->push(msgToGUI);
+    }
+
+    webapiFormatDeviceSettings(response, settings);
+    return 200;
+}
+
+void RemoteOutput::webapiUpdateDeviceSettings(
+        RemoteOutputSettings& settings,
+        const QStringList& deviceSettingsKeys,
+        SWGSDRangel::SWGDeviceSettings& response)
+{
     if (deviceSettingsKeys.contains("sampleRate")) {
         settings.m_sampleRate = response.getRemoteOutputSettings()->getSampleRate();
     }
@@ -424,18 +444,6 @@ int RemoteOutput::webapiSettingsPutPatch(
     if (deviceSettingsKeys.contains("reverseAPIDeviceIndex")) {
         settings.m_reverseAPIDeviceIndex = response.getRemoteOutputSettings()->getReverseApiDeviceIndex();
     }
-
-    MsgConfigureRemoteOutput *msg = MsgConfigureRemoteOutput::create(settings, force);
-    m_inputMessageQueue.push(msg);
-
-    if (m_guiMessageQueue) // forward to GUI if any
-    {
-        MsgConfigureRemoteOutput *msgToGUI = MsgConfigureRemoteOutput::create(settings, force);
-        m_guiMessageQueue->push(msgToGUI);
-    }
-
-    webapiFormatDeviceSettings(response, settings);
-    return 200;
 }
 
 int RemoteOutput::webapiReportGet(
@@ -451,7 +459,7 @@ int RemoteOutput::webapiReportGet(
 
 void RemoteOutput::webapiFormatDeviceSettings(SWGSDRangel::SWGDeviceSettings& response, const RemoteOutputSettings& settings)
 {
-    response.getRemoteOutputSettings()->setCenterFrequency(m_centerFrequency);
+    response.getRemoteOutputSettings()->setCenterFrequency(settings.m_centerFrequency);
     response.getRemoteOutputSettings()->setSampleRate(settings.m_sampleRate);
     response.getRemoteOutputSettings()->setTxDelay(settings.m_txDelay);
     response.getRemoteOutputSettings()->setNbFecBlocks(settings.m_nbFECBlocks);
@@ -504,32 +512,35 @@ void RemoteOutput::networkManagerFinished(QNetworkReply *reply)
     if (reply->error())
     {
         qInfo("RemoteOutput::networkManagerFinished: error: %s", qPrintable(reply->errorString()));
-        return;
     }
-
-    QString answer = reply->readAll();
-
-    try
+    else
     {
-        QByteArray jsonBytes(answer.toStdString().c_str());
-        QJsonParseError error;
-        QJsonDocument doc = QJsonDocument::fromJson(jsonBytes, &error);
+        QString answer = reply->readAll();
 
-        if (error.error == QJsonParseError::NoError)
+        try
         {
-            analyzeApiReply(doc.object(), answer);
+            QByteArray jsonBytes(answer.toStdString().c_str());
+            QJsonParseError error;
+            QJsonDocument doc = QJsonDocument::fromJson(jsonBytes, &error);
+
+            if (error.error == QJsonParseError::NoError)
+            {
+                analyzeApiReply(doc.object(), answer);
+            }
+            else
+            {
+                QString errorMsg = QString("Reply JSON error: ") + error.errorString() + QString(" at offset ") + QString::number(error.offset);
+                qInfo().noquote() << "RemoteOutput::networkManagerFinished" << errorMsg;
+            }
         }
-        else
+        catch (const std::exception& ex)
         {
-            QString errorMsg = QString("Reply JSON error: ") + error.errorString() + QString(" at offset ") + QString::number(error.offset);
+            QString errorMsg = QString("Error parsing request: ") + ex.what();
             qInfo().noquote() << "RemoteOutput::networkManagerFinished" << errorMsg;
         }
     }
-    catch (const std::exception& ex)
-    {
-        QString errorMsg = QString("Error parsing request: ") + ex.what();
-        qInfo().noquote() << "RemoteOutput::networkManagerFinished" << errorMsg;
-    }
+
+    reply->deleteLater();
 }
 
 void RemoteOutput::analyzeApiReply(const QJsonObject& jsonObject, const QString& answer)
@@ -537,7 +548,8 @@ void RemoteOutput::analyzeApiReply(const QJsonObject& jsonObject, const QString&
     if (jsonObject.contains("RemoteSourceReport"))
     {
         QJsonObject report = jsonObject["RemoteSourceReport"].toObject();
-        m_centerFrequency = report["deviceCenterFreq"].toInt() * 1000;
+        m_settings.m_centerFrequency = report["deviceCenterFreq"].toInt();
+        m_centerFrequency = m_settings.m_centerFrequency * 1000;
 
         if (!m_remoteOutputThread) {
             return;
@@ -666,13 +678,14 @@ void RemoteOutput::webapiReverseSendSettings(QList<QString>& deviceSettingsKeys,
     m_networkRequest.setUrl(QUrl(deviceSettingsURL));
     m_networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-    QBuffer *buffer=new QBuffer();
+    QBuffer *buffer = new QBuffer();
     buffer->open((QBuffer::ReadWrite));
     buffer->write(swgDeviceSettings->asJson().toUtf8());
     buffer->seek(0);
 
     // Always use PATCH to avoid passing reverse API settings
-    m_networkManager->sendCustomRequest(m_networkRequest, "PATCH", buffer);
+    QNetworkReply *reply = m_networkManager->sendCustomRequest(m_networkRequest, "PATCH", buffer);
+    buffer->setParent(reply);
 
     delete swgDeviceSettings;
 }
@@ -691,14 +704,18 @@ void RemoteOutput::webapiReverseSendStartStop(bool start)
     m_networkRequest.setUrl(QUrl(deviceSettingsURL));
     m_networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-    QBuffer *buffer=new QBuffer();
+    QBuffer *buffer = new QBuffer();
     buffer->open((QBuffer::ReadWrite));
     buffer->write(swgDeviceSettings->asJson().toUtf8());
     buffer->seek(0);
+    QNetworkReply *reply;
 
     if (start) {
-        m_networkManager->sendCustomRequest(m_networkRequest, "POST", buffer);
+        reply = m_networkManager->sendCustomRequest(m_networkRequest, "POST", buffer);
     } else {
-        m_networkManager->sendCustomRequest(m_networkRequest, "DELETE", buffer);
+        reply = m_networkManager->sendCustomRequest(m_networkRequest, "DELETE", buffer);
     }
+
+    buffer->setParent(reply);
+    delete swgDeviceSettings;
 }

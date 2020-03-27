@@ -25,10 +25,13 @@
 #include "udpsourcegui.h"
 #endif
 #include "udpsource.h"
+#include "udpsourcewebapiadapter.h"
+#include "udpsourceplugin.h"
 
 const PluginDescriptor UDPSourcePlugin::m_pluginDescriptor = {
+    UDPSource::m_channelId,
 	QString("UDP Channel Source"),
-	QString("4.5.2"),
+	QString("4.12.3"),
 	QString("(c) Edouard Griffiths, F4EXB"),
 	QString("https://github.com/f4exb/sdrangel"),
 	true,
@@ -56,26 +59,29 @@ void UDPSourcePlugin::initPlugin(PluginAPI* pluginAPI)
 
 #ifdef SERVER_MODE
 PluginInstanceGUI* UDPSourcePlugin::createTxChannelGUI(
-        DeviceUISet *deviceUISet __attribute__((unused)),
-        BasebandSampleSource *txChannel __attribute__((unused)))
+        DeviceUISet *deviceUISet,
+        BasebandSampleSource *txChannel) const
 {
     return 0;
 }
 #else
-PluginInstanceGUI* UDPSourcePlugin::createTxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSource *txChannel)
+PluginInstanceGUI* UDPSourcePlugin::createTxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSource *txChannel) const
 {
     return UDPSourceGUI::create(m_pluginAPI, deviceUISet, txChannel);
 }
 #endif
 
-BasebandSampleSource* UDPSourcePlugin::createTxChannelBS(DeviceAPI *deviceAPI)
+BasebandSampleSource* UDPSourcePlugin::createTxChannelBS(DeviceAPI *deviceAPI) const
 {
     return new UDPSource(deviceAPI);
 }
 
-ChannelAPI* UDPSourcePlugin::createTxChannelCS(DeviceAPI *deviceAPI)
+ChannelAPI* UDPSourcePlugin::createTxChannelCS(DeviceAPI *deviceAPI) const
 {
     return new UDPSource(deviceAPI);
 }
 
-
+ChannelWebAPIAdapter* UDPSourcePlugin::createChannelWebAPIAdapter() const
+{
+	return new UDPSourceWebAPIAdapter();
+}

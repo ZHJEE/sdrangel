@@ -22,6 +22,8 @@
 #include <QString>
 #include <stdint.h>
 
+#include "dsp/cwkeyersettings.h"
+
 class Serializable;
 
 struct SSBModSettings
@@ -51,17 +53,15 @@ struct SSBModSettings
     bool m_audioMute;
     bool m_playLoop;
     bool m_agc;
-    float m_agcOrder;
-    int m_agcTime;
-    bool m_agcThresholdEnable;
-    int m_agcThreshold;
-    int m_agcThresholdGate;
-    int m_agcThresholdDelay;
     quint32 m_rgbColor;
 
     QString m_title;
     SSBModInputAF m_modAFInput;
-    QString m_audioDeviceName;
+    QString m_audioDeviceName;         //!< This is the audio device you get the audio samples from
+    QString m_feedbackAudioDeviceName; //!< This is the audio device you send the audio samples to for audio feedback
+    float m_feedbackVolumeFactor;
+    bool m_feedbackAudioEnable;
+    int m_streamIndex;
 
     bool m_useReverseAPI;
     QString m_reverseAPIAddress;
@@ -73,6 +73,8 @@ struct SSBModSettings
     Serializable *m_spectrumGUI;
     Serializable *m_cwKeyerGUI;
 
+    CWKeyerSettings m_cwKeyerSettings; //!< For standalone deserialize operation (without m_cwKeyerGUI)
+
     SSBModSettings();
     void resetToDefaults();
     void setChannelMarker(Serializable *channelMarker) { m_channelMarker = channelMarker; }
@@ -80,9 +82,8 @@ struct SSBModSettings
     void setCWKeyerGUI(Serializable *cwKeyerGUI) { m_cwKeyerGUI = cwKeyerGUI; }
     QByteArray serialize() const;
     bool deserialize(const QByteArray& data);
-
-    static int getAGCTimeConstant(int index);
-    static int getAGCTimeConstantIndex(int agcTimeConstant);
+    const CWKeyerSettings& getCWKeyerSettings() const { return m_cwKeyerSettings; }
+    void setCWKeyerSettings(const CWKeyerSettings& cwKeyerSettings) { m_cwKeyerSettings = cwKeyerSettings; }
 };
 
 

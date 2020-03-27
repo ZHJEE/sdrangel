@@ -19,15 +19,14 @@
 #include "dsddemodgui.h"
 
 #include "device/deviceuiset.h"
-#include "dsp/downchannelizer.h"
 
-#include "dsp/threadedbasebandsamplesink.h"
 #include "ui_dsddemodgui.h"
 #include "dsp/scopevisxy.h"
 #include "plugin/pluginapi.h"
 #include "util/simpleserializer.h"
 #include "util/db.h"
 #include "gui/basicchannelsettingsdialog.h"
+#include "gui/devicestreamselectiondialog.h"
 #include "gui/crightclickenabler.h"
 #include "gui/audioselectdialog.h"
 #include "dsp/dspengine.h"
@@ -298,6 +297,20 @@ void DSDDemodGUI::onMenuDialogCalled(const QPoint &p)
 
         applySettings();
     }
+    else if ((m_contextMenuType == ContextMenuStreamSettings) && (m_deviceUISet->m_deviceMIMOEngine))
+    {
+        DeviceStreamSelectionDialog dialog(this);
+        dialog.setNumberOfStreams(m_dsdDemod->getNumberOfDeviceStreams());
+        dialog.setStreamIndex(m_settings.m_streamIndex);
+        dialog.move(p);
+        dialog.exec();
+
+        m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+        m_channelMarker.clearStreamIndexes();
+        m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+        displayStreamIndex();
+        applySettings();
+    }
 
     resetContextMenuType();
 }
@@ -402,7 +415,7 @@ void DSDDemodGUI::updateMyPosition()
 
     if ((m_myLatitude != latitude) || (m_myLongitude != longitude))
     {
-        m_dsdDemod->configureMyPosition(m_dsdDemod->getInputMessageQueue(), latitude, longitude);
+        m_dsdDemod->configureMyPosition(latitude, longitude);
         m_myLatitude = latitude;
         m_myLongitude = longitude;
     }
@@ -465,7 +478,18 @@ void DSDDemodGUI::displaySettings()
     ui->traceDecayText->setText(QString("%1").arg(m_settings.m_traceDecay));
     m_scopeVisXY->setDecay(m_settings.m_traceDecay);
 
+    displayStreamIndex();
+
     blockApplySettings(false);
+}
+
+void DSDDemodGUI::displayStreamIndex()
+{
+    if (m_deviceUISet->m_deviceMIMOEngine) {
+        setStreamIndicator(tr("%1").arg(m_settings.m_streamIndex));
+    } else {
+        setStreamIndicator("S"); // single channel indicator
+    }
 }
 
 void DSDDemodGUI::applySettings(bool force)
@@ -473,10 +497,6 @@ void DSDDemodGUI::applySettings(bool force)
 	if (m_doApplySettings)
 	{
 		qDebug() << "DSDDemodGUI::applySettings";
-
-        DSDDemod::MsgConfigureChannelizer* channelConfigMsg = DSDDemod::MsgConfigureChannelizer::create(
-                48000, m_channelMarker.getCenterFrequency());
-        m_dsdDemod->getInputMessageQueue()->push(channelConfigMsg);
 
         DSDDemod::MsgConfigureDSDDemod* message = DSDDemod::MsgConfigureDSDDemod::create( m_settings, force);
         m_dsdDemod->getInputMessageQueue()->push(message);

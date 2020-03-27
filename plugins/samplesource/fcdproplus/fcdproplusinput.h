@@ -145,6 +145,20 @@ public:
                 SWGSDRangel::SWGDeviceSettings& response, // query + response
                 QString& errorMessage);
 
+    virtual int webapiActionsPost(
+            const QStringList& deviceActionsKeys,
+            SWGSDRangel::SWGDeviceActions& actions,
+            QString& errorMessage);
+
+    static void webapiFormatDeviceSettings(
+            SWGSDRangel::SWGDeviceSettings& response,
+            const FCDProPlusSettings& settings);
+
+    static void webapiUpdateDeviceSettings(
+            FCDProPlusSettings& settings,
+            const QStringList& deviceSettingsKeys,
+            SWGSDRangel::SWGDeviceSettings& response);
+
     void set_center_freq(double freq);
 	void set_bias_t(bool on);
 	void set_lna_gain(bool on);
@@ -172,7 +186,6 @@ private:
     bool openFCDAudio(const char *filename);
     void closeFCDAudio();
 	void applySettings(const FCDProPlusSettings& settings, bool force);
-    void webapiFormatDeviceSettings(SWGSDRangel::SWGDeviceSettings& response, const FCDProPlusSettings& settings);
     void webapiReverseSendSettings(QList<QString>& deviceSettingsKeys, const FCDProPlusSettings& settings, bool force);
     void webapiReverseSendStartStop(bool start);
 

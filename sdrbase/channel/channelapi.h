@@ -1,7 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2019 Edouard Griffiths, F4EXB                                   //
 //                                                                               //
-// API for Rx channels                                                           //
+// API for channels                                                              //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -32,6 +32,7 @@ namespace SWGSDRangel
 {
     class SWGChannelSettings;
     class SWGChannelReport;
+    class SWGChannelActions;
 }
 
 class SDRBASE_API ChannelAPI {
@@ -40,7 +41,7 @@ public:
     {
         StreamSingleSink,   //!< Exposes a single sink stream (input, Rx)
         StreamSingleSource, //!< Exposes a single source stream (output, Tx)
-        StreamAny           //!< May expose any number of sink and/or source streams
+        StreamMIMO          //!< May expose any number of sink and/or source streams
     };
 
     ChannelAPI(const QString& name, StreamType streamType);
@@ -56,6 +57,9 @@ public:
     virtual QByteArray serialize() const = 0;
     virtual bool deserialize(const QByteArray& data) = 0;
 
+    /**
+     * API adapter for the channel settings GET requests
+     */
     virtual int webapiSettingsGet(
             SWGSDRangel::SWGChannelSettings& response,
             QString& errorMessage)
@@ -64,6 +68,9 @@ public:
         errorMessage = "Not implemented"; return 501;
     }
 
+    /**
+     * API adapter for the channel settings PUT and PATCH requests
+     */
     virtual int webapiSettingsPutPatch(
             bool force,
             const QStringList& channelSettingsKeys,
@@ -76,11 +83,27 @@ public:
         errorMessage = "Not implemented"; return 501;
     }
 
+    /**
+     * API adapter for the channel report GET requests
+     */
     virtual int webapiReportGet(
             SWGSDRangel::SWGChannelReport& response,
             QString& errorMessage)
     {
         (void) response;
+        errorMessage = "Not implemented"; return 501;
+    }
+
+    /**
+     * API adapter for the channel actions POST requests
+     */
+    virtual int webapiActionsPost(
+            const QStringList& channelActionsKeys,
+            SWGSDRangel::SWGChannelActions& query,
+            QString& errorMessage)
+    {
+        (void) query;
+        (void) channelActionsKeys;
         errorMessage = "Not implemented"; return 501;
     }
 

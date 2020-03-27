@@ -22,11 +22,13 @@
 #include "freqtrackergui.h"
 #endif
 #include "freqtracker.h"
+#include "freqtrackerwebapiadapter.h"
 #include "freqtrackerplugin.h"
 
 const PluginDescriptor FreqTrackerPlugin::m_pluginDescriptor = {
+    FreqTracker::m_channelId,
 	QString("Frequency Tracker"),
-	QString("4.7.0"),
+	QString("4.12.3"),
 	QString("(c) Edouard Griffiths, F4EXB"),
 	QString("https://github.com/f4exb/sdrangel"),
 	true,
@@ -54,25 +56,29 @@ void FreqTrackerPlugin::initPlugin(PluginAPI* pluginAPI)
 
 #ifdef SERVER_MODE
 PluginInstanceGUI* FreqTrackerPlugin::createRxChannelGUI(
-        DeviceUISet *deviceUISet __attribute__((unused)),
-        BasebandSampleSink *rxChannel __attribute__((unused)))
+        DeviceUISet *deviceUISet,
+        BasebandSampleSink *rxChannel) const
 {
     return 0;
 }
 #else
-PluginInstanceGUI* FreqTrackerPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel)
+PluginInstanceGUI* FreqTrackerPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel) const
 {
 	return FreqTrackerGUI::create(m_pluginAPI, deviceUISet, rxChannel);
 }
 #endif
 
-BasebandSampleSink* FreqTrackerPlugin::createRxChannelBS(DeviceAPI *deviceAPI)
+BasebandSampleSink* FreqTrackerPlugin::createRxChannelBS(DeviceAPI *deviceAPI) const
 {
     return new FreqTracker(deviceAPI);
 }
 
-ChannelAPI* FreqTrackerPlugin::createRxChannelCS(DeviceAPI *deviceAPI)
+ChannelAPI* FreqTrackerPlugin::createRxChannelCS(DeviceAPI *deviceAPI) const
 {
     return new FreqTracker(deviceAPI);
 }
 
+ChannelWebAPIAdapter* FreqTrackerPlugin::createChannelWebAPIAdapter() const
+{
+	return new FreqTrackerWebAPIAdapter();
+}

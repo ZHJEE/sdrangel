@@ -23,11 +23,13 @@
 #include "udpsinkgui.h"
 #endif
 #include "udpsink.h"
+#include "udpsinkwebapiadapter.h"
 #include "udpsinkplugin.h"
 
 const PluginDescriptor UDPSinkPlugin::m_pluginDescriptor = {
+    UDPSink::m_channelId,
 	QString("UDP Channel Sink"),
-	QString("4.5.2"),
+	QString("4.12.3"),
 	QString("(c) Edouard Griffiths, F4EXB"),
 	QString("https://github.com/f4exb/sdrangel"),
 	true,
@@ -55,25 +57,29 @@ void UDPSinkPlugin::initPlugin(PluginAPI* pluginAPI)
 
 #ifdef SERVER_MODE
 PluginInstanceGUI* UDPSinkPlugin::createRxChannelGUI(
-        DeviceUISet *deviceUISet __attribute__((unused)),
-        BasebandSampleSink *rxChannel __attribute__((unused)))
+        DeviceUISet *deviceUISet,
+        BasebandSampleSink *rxChannel) const
 {
     return 0;
 }
 #else
-PluginInstanceGUI* UDPSinkPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel)
+PluginInstanceGUI* UDPSinkPlugin::createRxChannelGUI(DeviceUISet *deviceUISet, BasebandSampleSink *rxChannel) const
 {
 	return UDPSinkGUI::create(m_pluginAPI, deviceUISet, rxChannel);
 }
 #endif
 
-BasebandSampleSink* UDPSinkPlugin::createRxChannelBS(DeviceAPI *deviceAPI)
+BasebandSampleSink* UDPSinkPlugin::createRxChannelBS(DeviceAPI *deviceAPI) const
 {
     return new UDPSink(deviceAPI);
 }
 
-ChannelAPI* UDPSinkPlugin::createRxChannelCS(DeviceAPI *deviceAPI)
+ChannelAPI* UDPSinkPlugin::createRxChannelCS(DeviceAPI *deviceAPI) const
 {
     return new UDPSink(deviceAPI);
 }
 
+ChannelWebAPIAdapter* UDPSinkPlugin::createChannelWebAPIAdapter() const
+{
+	return new UDPSinkWebAPIAdapter();
+}

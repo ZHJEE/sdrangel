@@ -80,6 +80,9 @@ struct ATVModSettings
     QString       m_overlayText;
     quint32       m_rgbColor;
     QString       m_title;
+    QString       m_imageFileName;
+    QString       m_videoFileName;
+    int           m_streamIndex;
     bool          m_useReverseAPI;
     QString       m_reverseAPIAddress;
     uint16_t      m_reverseAPIPort;

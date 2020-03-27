@@ -24,11 +24,12 @@
 
 #include "lime/LimeSuite.h"
 
-#include "dsp/samplesourcefifo.h"
 #include "dsp/interpolators.h"
 #include "limesdr/devicelimesdrshared.h"
 
 #define LIMESDROUTPUT_BLOCKSIZE (1<<15) //complex samples per buffer ~10k (16k)
+
+class SampleSourceFifo;
 
 class LimeSDROutputThread : public QThread, public DeviceLimeSDRShared::ThreadInterface
 {
@@ -59,6 +60,7 @@ private:
 
     void run();
     void callback(qint16* buf, qint32 len);
+    void callbackPart(qint16* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd);
 };
 
 

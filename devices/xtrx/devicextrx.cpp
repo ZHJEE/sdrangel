@@ -18,6 +18,7 @@
 #include <QDebug>
 
 #include "xtrx_api.h"
+#include "devicextrxparam.h"
 #include "devicextrx.h"
 
 const uint32_t DeviceXTRX::m_lnaTbl[m_nbGains] = {
@@ -41,7 +42,9 @@ DeviceXTRX::DeviceXTRX() :
     m_inputRate(0),
     m_outputRate(0),
     m_masterRate(0),
-    m_clockGen(0)
+    m_clockGen(0),
+    m_actualInputRate(0),
+    m_actualOutputRate(0)
 {}
 
 DeviceXTRX::~DeviceXTRX()
@@ -71,6 +74,28 @@ void DeviceXTRX::close()
     {
         xtrx_close(m_dev);
         m_dev = 0;
+    }
+}
+
+void DeviceXTRX::enumOriginDevices(const QString& hardwareId, PluginInterface::OriginDevices& originDevices)
+{
+    xtrx_device_info_t devs[32];
+    int res = xtrx_discovery(devs, 32);
+    int i;
+
+    for (i = 0; i < res; i++)
+    {
+        DeviceXTRXParams XTRXParams;
+        QString displayableName(QString("XTRX[%1:$1] %2").arg(i).arg(devs[i].uniqname));
+
+        originDevices.append(PluginInterface::OriginDevice(
+            displayableName,
+            hardwareId,
+            QString(devs[i].uniqname),
+            i,
+            XTRXParams.m_nbRxChannels,
+            XTRXParams.m_nbTxChannels
+        ));
     }
 }
 

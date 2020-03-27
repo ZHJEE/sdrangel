@@ -63,6 +63,7 @@ private:
     DeviceUISet* m_deviceUISet;
     ChannelMarker m_channelMarker;
     RemoteSourceSettings m_settings;
+    int m_remoteSampleRate;
     bool m_doApplySettings;
 
     RemoteSource* m_remoteSrc;
@@ -84,6 +85,7 @@ private:
     void blockApplySettings(bool block);
     void applySettings(bool force = false);
     void displaySettings();
+    void displayStreamIndex();
 
     void leaveEvent(QEvent*);
     void enterEvent(QEvent*);
