@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2015 Edouard Griffiths, F4EXB.                                  //
+// Copyright (C) 2015-2019 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -18,7 +18,6 @@
 #ifndef INCLUDE_GPL_DSP_AFSQUELCH_H_
 #define INCLUDE_GPL_DSP_AFSQUELCH_H_
 
-#include "dsp/dsptypes.h"
 #include "dsp/movingaverage.h"
 #include "export.h"
 
@@ -28,8 +27,10 @@
 class SDRBASE_API AFSquelch {
 public:
     // constructor with default values
-	AFSquelch();
+    AFSquelch();
     virtual ~AFSquelch();
+    AFSquelch(const AFSquelch&) = delete;
+    AFSquelch& operator=(const AFSquelch&) = delete;
 
     // setup the basic parameters and coefficients
     void setCoefficients(

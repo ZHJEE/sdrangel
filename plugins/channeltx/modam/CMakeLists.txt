@@ -1,51 +1,73 @@
 project(modam)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(modam_SOURCES
 	ammod.cpp
-	ammodgui.cpp
 	ammodplugin.cpp
-	ammodsettings.cpp
+    ammodsettings.cpp
+    ammodbaseband.cpp
+    ammodsource.cpp
+    ammodwebapiadapter.cpp
 )
 
 set(modam_HEADERS
 	ammod.h
-	ammodgui.h
 	ammodplugin.h
-	ammodsettings.h
-)
-
-set(modam_FORMS
-	ammodgui.ui
+    ammodsettings.h
+    ammodbaseband.h
+    ammodsource.h
+    ammodwebapiadapter.h
 )
 
 include_directories(
-	.
-	${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
+        ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
 )
 
-add_definitions(${QT_DEFINITIONS})
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
+if(NOT SERVER_MODE)
+    set(modam_SOURCES
+        ${modam_SOURCES}
+        ammodgui.cpp
 
-qt5_wrap_ui(modam_FORMS_HEADERS ${modam_FORMS})
+        ammodgui.ui
+    )
+    set(modam_HEADERS
+        ${modam_HEADERS}
+        ammodgui.h
+    )
 
-add_library(modam SHARED
-	${modam_SOURCES}
-	${modam_HEADERS_MOC}
-	${modam_FORMS_HEADERS}
-)
+    set(TARGET_NAME ${PLUGINS_PREFIX}modam)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}modamsrv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
 
-target_link_libraries(modam
-	${QT_LIBRARIES}
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${modam_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME AMModPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${modam_SOURCES})
+endif()
+
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+target_link_libraries(${TARGET_NAME} PRIVATE
+        Qt::Core
+        ${TARGET_LIB}
 	sdrbase
-	sdrgui
-	swagger
+	${TARGET_LIB_GUI}
+        swagger
 )
 
-target_link_libraries(modam Qt5::Core Qt5::Widgets)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-install(TARGETS modam DESTINATION lib/plugins/channeltx)
-
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

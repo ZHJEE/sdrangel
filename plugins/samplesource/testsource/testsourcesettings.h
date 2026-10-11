@@ -1,5 +1,8 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2014 John Greb <hexameron@spam.no>                              //
+// Copyright (C) 2015, 2017-2020, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com> //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -44,6 +47,7 @@ struct TestSourceSettings {
         ModulationLast
     } Modulation;
 
+    QString m_title;
     quint64 m_centerFrequency;
 	qint32 m_frequencyShift;
 	quint32 m_sampleRate;
@@ -60,7 +64,8 @@ struct TestSourceSettings {
     float m_iFactor;        //!< -1.0 < x < 1.0
     float m_qFactor;        //!< -1.0 < x < 1.0
     float m_phaseImbalance; //!< -1.0 < x < 1.0
-    QString m_fileRecordName;
+    qint32 m_period;        //!< Period of the P1 and P2 patterns in samples
+    qint32 m_dutyCycle;     //!< Percentage of the period the P2 pattern is high
     bool m_useReverseAPI;
     QString m_reverseAPIAddress;
     uint16_t m_reverseAPIPort;
@@ -70,6 +75,8 @@ struct TestSourceSettings {
 	void resetToDefaults();
 	QByteArray serialize() const;
 	bool deserialize(const QByteArray& data);
+    void applySettings(const QStringList& settingsKeys, const TestSourceSettings& settings);
+    QString getDebugString(const QStringList& settingsKeys, bool force=false) const;
 };
 
 

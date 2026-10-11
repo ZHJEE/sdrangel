@@ -8,11 +8,18 @@ This input sample source plugin gets its samples from a [BladeRF1 device](https:
 
 The plugin will be built only if the [BladeRF host library](https://github.com/Nuand/bladeRF) is installed in your system. If you build it from source and install it in a custom location say: `/opt/install/libbladeRF` you will have to add `-DBLADERF_INCLUDE_DIR=/opt/install/libbladeRF` to the cmake command line.
 
-Note that libbladeRF v2 with git tag 2018.08 should be used (official release). The FPGA image v0.7.3 should be used accordingly. The FPGA .rbf file should be copied to the folder where the `sdrangel` binary resides. You can download FPGA images from [here](https://www.nuand.com/fpga_images/)
+Note that libbladeRF v2 with git tag 2018.10-rc1 should be used (official release) thus:
+
+  - The FX3 firmware version should be v2.3.1
+  - The FPGA image version should be v0.9.0
+
+The FPGA .rbf file should be copied to the folder where the `sdrangel` binary resides. You can download FPGA images from [here](https://www.nuand.com/fpga_images/)
 
 The BladeRF Host library is also provided by many Linux distributions (check its version) and is built in the SDRangel binary releases.
 
 <h2>Interface</h2>
+
+The top and bottom bars of the device window are described [here](../../../sdrgui/device/readme.md)
 
 ![BladeRF1 input plugin GUI](../../../doc/img/BladeRF1Input_plugin.png)
 
@@ -31,10 +38,6 @@ Device start / stop button.
   - Blue triangle icon: device is ready and can be started
   - Green square icon: device is running and can be stopped
   - Magenta (or pink) square icon: an error occurred. In the case the device was accidentally disconnected you may click on the icon, plug back in and start again.
-
-<h4>1.3: Record</h4>
-
-Record baseband I/Q stream toggle button
 
 <h4>1.4: Stream sample rate</h4>
 
@@ -81,7 +84,7 @@ Use the wheels to adjust the sample rate. Left click on a digit sets the cursor 
 
 The I/Q stream from the BladeRF ADC is downsampled by a power of two before being sent to the baseband. Possible values are increasing powers of two: 1 (no decimation), 2, 4, 8, 16, 32, 64.
 
-<h3>6: Baseband center frequency position relative the the BladeRF Rx center frequency</h3>
+<h3>6: Baseband center frequency position relative to the BladeRF Rx center frequency</h3>
 
 Possible values are:
 
@@ -98,7 +101,7 @@ With SR as the sample rate before decimation Fc is calculated as:
 
 This is the Rx filter bandwidth in kHz in the LMS6002D device. Possible values are: 1500, 1750, 2500, 2750, 3000, 3840, 5000, 5500, 6000, 7000, 8750, 10000, 12000, 14000, 20000, 28000 kHz.
 
-<h3>8: LNA gain</h2>
+<h3>8: LNA gain</h3>
 
 This is the LNA gain in dB. LNA is inside the LMS6002D chip and is placed before the RF mixer. Possible values are:
 

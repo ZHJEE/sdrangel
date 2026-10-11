@@ -1,25 +1,47 @@
 #!/usr/bin/make -f
-# See debhelper(7) (uncomment to enable)
-# output every command that modifies files on the build system.
-#export DH_VERBOSE = 1
 
+# Override with "debuild -eQT_VERSION=6 ..." to build the Qt6 package.
+QT_VERSION ?= 5
 
-# see FEATURE AREAS in dpkg-buildflags(1)
-#export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+include /usr/share/dpkg/architecture.mk
 
-# see ENVIRONMENT in dpkg-buildflags(1)
-# package maintainers to append CFLAGS
-#export DEB_CFLAGS_MAINT_APPEND  = -Wall -pedantic
-# package maintainers to append LDFLAGS
-#export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+ARCH_OPT :=
+ifeq ($(DEB_HOST_ARCH),amd64)
+ARCH_OPT := nehalem
+else ifeq ($(DEB_HOST_ARCH),arm64)
+ARCH_OPT := armv8-a
+endif
 
+ifeq ($(QT_VERSION),5)
+QT_CMAKE_OPTION := -DENABLE_QT6=OFF
+QT_RUNTIME_DEPENDS := libqt5multimedia5-plugins, qtspeech5-speechd-plugin, qml-module-qtlocation, qml-module-qtpositioning, qml-module-qtquick-window2, qml-module-qtquick-dialogs, qml-module-qtquick-controls, qml-module-qtquick-controls2, qml-module-qtquick-layouts, qml-module-qtgraphicaleffects
+else ifeq ($(QT_VERSION),6)
+QT_CMAKE_OPTION := -DENABLE_QT6=ON -DENABLE_PERSEUS=OFF -DENABLE_BLADERF=OFF -DENABLE_MIRISDR=OFF -DENABLE_CHANNELRX_SIGMFFILESINK=OFF  
+QT_RUNTIME_DEPENDS := qt6-speech-speechd-plugin, qt6-location-plugins, qml6-module-qtlocation, qml6-module-qtpositioning, qml6-module-qtquick-window, qml6-module-qtquick-dialogs, qml6-module-qtquick-controls, qml6-module-qtquick-layouts, qml6-module-qt5compat-graphicaleffects
+else
+$(error QT_VERSION must be either 5 or 6)
+endif
 
 %:
-	dh $@ --parallel
+	dh $@ --parallel --buildsystem=cmake+ninja
 
-
-# dh_make generated override targets
-# This is example for Cmake (See https://bugs.debian.org/641051 )
 override_dh_auto_configure:
-	dh_auto_configure -- -DCMAKE_INSTALL_PREFIX=/opt/sdrangel -DDEBUG_OUTPUT=ON -DBUILD_TYPE=DEBIAN -DRX_SAMPLE_24BIT=ON -DENABLE_DISTRIBUTION=ON -DLIBCM256CCSRC=/shared/development/cm256cc -DLIBDSDCCSRC=/shared/development/dsdcc -DLIBAIRSPYSRC=/shared/development/libairspy -DLIBAIRSPYHFSRC=/shared/softs/airspyhf -DLIBHACKRFSRC=/shared/development/hackrf/host -DLIBRTLSDRSRC=/shared/development/librtlsdr.f4exb -DLIBMBELIBSRC=/shared/development/mbelib -DLIBSERIALDVSRC=/shared/development/serialDV -DLIBBLADERFSRC=/shared/softs/bladeRF -DLIBBLADERFCOMMONSRC=/shared/softs/bladeRF/host/common -DLIBBLADERFLIBSRC=/shared/softs/bladeRF/host/libraries/libbladeRF -DLIBMIRISDRSRC=/shared/development/libmirisdr-4 -DLIBLIMESUITESRC=/shared/softs/LimeSuite -DLIBIIOSRC=/shared/softs/libiio -DLIBPERSEUSSRC=/shared/softs/libperseus-sdr -DSOAPYSDR_SOURCE_DIR=/shared/softs/SoapySDR
+	dh_auto_configure -- -DARCH_OPT=$(ARCH_OPT) $(QT_CMAKE_OPTION) -DENABLE_EXTERNAL_LIBRARIES=AUTO -DDEBUG_OUTPUT=ON -DBUILD_SERVER=OFF
 
+override_dh_gencontrol:
+	dh_gencontrol -- -Vqt:Depends='$(QT_RUNTIME_DEPENDS)'
+
+# delete any external projects (such as libsigmf) that are installed
+# would be better if we could prevent them from being installed in CMakeLists.txt
+override_dh_install:
+	-find debian/sdrangel -type d -name external -exec rm -r {} \; -exec mkdir {} \; -exec rmdir -p {} \;
+	dh_install
+
+override_dh_auto_test:
+	echo "Skipping test step"
+
+# permit the packaging with /usr/local/lib libraries (from `make install`)
+# you can also use `export DEB_DH_SHLIBDEPS_ARGS_ALL=--dpkg-shlibdeps-params=--ignore-missing-info`
+# not a good idea!
+override_dh_shlibdeps:
+	dh_shlibdeps --dpkg-shlibdeps-params=--ignore-missing-info

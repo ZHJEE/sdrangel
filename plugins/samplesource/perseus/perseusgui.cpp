@@ -1,5 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2015-2020, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>    //
+// Copyright (C) 2022-2023 Jon Beniston, M7RCE <jon@beniston.com>                //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -17,33 +18,38 @@
 
 #include <QDebug>
 #include <QMessageBox>
+#include <QFileDialog>
 
 #include "device/deviceapi.h"
 #include "device/deviceuiset.h"
-#include "dsp/filerecord.h"
 
 #include "ui_perseusgui.h"
+#include "gui/messagedialog.h"
 #include "gui/colormapper.h"
 #include "gui/glspectrum.h"
-#include "gui/crightclickenabler.h"
 #include "gui/basicdevicesettingsdialog.h"
-#include "dsp/dspengine.h"
+#include "gui/dialogpositioner.h"
+#include "mainspectrum/mainspectrumgui.h"
 #include "dsp/dspcommands.h"
 #include "perseusgui.h"
 
 PerseusGui::PerseusGui(DeviceUISet *deviceUISet, QWidget* parent) :
-	QWidget(parent),
+	DeviceGUI(parent),
 	ui(new Ui::PerseusGui),
-	m_deviceUISet(deviceUISet),
 	m_doApplySettings(true),
 	m_forceSettings(true),
 	m_settings(),
 	m_sampleSource(0),
 	m_lastEngineState(DeviceAPI::StNotStarted)
 {
+    m_deviceUISet = deviceUISet;
+    setAttribute(Qt::WA_DeleteOnClose, true);
     m_sampleSource = (PerseusInput*) m_deviceUISet->m_deviceAPI->getSampleSource();
 
-    ui->setupUi(this);
+    ui->setupUi(getContents());
+    sizeToContents();
+    getContents()->setStyleSheet("#PerseusGui { background-color: rgb(64, 64, 64); }");
+    m_helpURL = "plugins/samplesource/perseus/readme.md";
 	ui->centerFrequency->setColorMapper(ColorMapper(ColorMapper::GrayGold));
 	updateFrequencyLimits();
 
@@ -51,8 +57,7 @@ PerseusGui::PerseusGui(DeviceUISet *deviceUISet, QWidget* parent) :
 	connect(&m_statusTimer, SIGNAL(timeout()), this, SLOT(updateStatus()));
 	m_statusTimer.start(500);
 
-    CRightClickEnabler *startStopRightClickEnabler = new CRightClickEnabler(ui->startStop);
-    connect(startStopRightClickEnabler, SIGNAL(rightClick(const QPoint &)), this, SLOT(openDeviceSettingsDialog(const QPoint &)));
+    connect(this, SIGNAL(customContextMenuRequested(const QPoint &)), this, SLOT(openDeviceSettingsDialog(const QPoint &)));
 
 	displaySettings();
 
@@ -62,10 +67,14 @@ PerseusGui::PerseusGui(DeviceUISet *deviceUISet, QWidget* parent) :
     m_sampleSource->setMessageQueueToGUI(&m_inputMessageQueue);
 
     sendSettings();
+    makeUIConnections();
+    m_resizer.enableChildMouseTracking();
 }
 
 PerseusGui::~PerseusGui()
 {
+    m_statusTimer.stop();
+    m_updateTimer.stop();
 	delete ui;
 }
 
@@ -74,32 +83,11 @@ void PerseusGui::destroy()
 	delete this;
 }
 
-void PerseusGui::setName(const QString& name)
-{
-	setObjectName(name);
-}
-
-QString PerseusGui::getName() const
-{
-	return objectName();
-}
-
 void PerseusGui::resetToDefaults()
 {
 	m_settings.resetToDefaults();
 	displaySettings();
-	sendSettings();
-}
-
-qint64 PerseusGui::getCenterFrequency() const
-{
-	return m_settings.m_centerFrequency;
-}
-
-void PerseusGui::setCenterFrequency(qint64 centerFrequency)
-{
-	m_settings.m_centerFrequency = centerFrequency;
-	displaySettings();
+    m_forceSettings = true;
 	sendSettings();
 }
 
@@ -127,7 +115,13 @@ bool PerseusGui::handleMessage(const Message& message)
     if (PerseusInput::MsgConfigurePerseus::match(message))
     {
         const PerseusInput::MsgConfigurePerseus& cfg = (PerseusInput::MsgConfigurePerseus&) message;
-        m_settings = cfg.getSettings();
+
+        if (cfg.getForce()) {
+            m_settings = cfg.getSettings();
+        } else {
+            m_settings.applySettings(cfg.getSettingsKeys(), cfg.getSettings());
+        }
+
         blockApplySettings(true);
         displaySettings();
         blockApplySettings(false);
@@ -166,12 +160,11 @@ void PerseusGui::handleInputMessages()
         }
         else
         {
-            qDebug("PerseusGui::handleInputMessages: message: %s", message->getIdentifier());
-
-            if (handleMessage(*message))
+            if (!handleMessage(*message))
             {
-                delete message;
+                qDebug("%s: unhandled message: %s", Q_FUNC_INFO, message->getIdentifier());
             }
+            delete message;
         }
     }
 }
@@ -186,9 +179,12 @@ void PerseusGui::updateSampleRateAndFrequency()
 void PerseusGui::displaySettings()
 {
     blockApplySettings(true);
+    setTitle(m_settings.m_title);
+    getDeviceUISet()->m_mainSpectrumGUI->setTitle(m_settings.m_title);
     updateFrequencyLimits();
     ui->transverter->setDeltaFrequency(m_settings.m_transverterDeltaFrequency);
     ui->transverter->setDeltaFrequencyActive(m_settings.m_transverterMode);
+    ui->transverter->setIQOrder(m_settings.m_iqOrder);
 	ui->centerFrequency->setValue(m_settings.m_centerFrequency / 1000);
 	ui->LOppm->setValue(m_settings.m_LOppmTenths);
 	ui->LOppmText->setText(QString("%1").arg(QString::number(m_settings.m_LOppmTenths/10.0, 'f', 1)));
@@ -237,12 +233,19 @@ void PerseusGui::updateFrequencyLimits()
     qint64 minLimit = 10 + deltaFrequency;
     qint64 maxLimit = 40000 + deltaFrequency;
 
-    minLimit = minLimit < 0 ? 0 : minLimit > 9999999 ? 9999999 : minLimit;
-    maxLimit = maxLimit < 0 ? 0 : maxLimit > 9999999 ? 9999999 : maxLimit;
-
+    if (m_settings.m_transverterMode)
+    {
+        minLimit = minLimit < 0 ? 0 : minLimit > 999999999 ? 999999999 : minLimit;
+        maxLimit = maxLimit < 0 ? 0 : maxLimit > 999999999 ? 999999999 : maxLimit;
+        ui->centerFrequency->setValueRange(9, minLimit, maxLimit);
+    }
+    else
+    {
+        minLimit = minLimit < 0 ? 0 : minLimit > 99999 ? 99999 : minLimit;
+        maxLimit = maxLimit < 0 ? 0 : maxLimit > 99999 ? 99999 : maxLimit;
+        ui->centerFrequency->setValueRange(5, minLimit, maxLimit);
+    }
     qDebug("PerseusGui::updateFrequencyLimits: delta: %lld min: %lld max: %lld", deltaFrequency, minLimit, maxLimit);
-
-    ui->centerFrequency->setValueRange(7, minLimit, maxLimit);
 }
 
 void PerseusGui::sendSettings()
@@ -254,6 +257,7 @@ void PerseusGui::sendSettings()
 void PerseusGui::on_centerFrequency_changed(quint64 value)
 {
 	m_settings.m_centerFrequency = value * 1000;
+    m_settingsKeys.append("centerFrequency");
 	sendSettings();
 }
 
@@ -261,6 +265,7 @@ void PerseusGui::on_LOppm_valueChanged(int value)
 {
     m_settings.m_LOppmTenths = value;
     ui->LOppmText->setText(QString("%1").arg(QString::number(m_settings.m_LOppmTenths/10.0, 'f', 1)));
+    m_settingsKeys.append("LOppmTenths");
     sendSettings();
 }
 
@@ -272,20 +277,25 @@ void PerseusGui::on_resetLOppm_clicked()
 void PerseusGui::on_sampleRate_currentIndexChanged(int index)
 {
 	m_settings.m_devSampleRateIndex = index;
+    m_settingsKeys.append("devSampleRateIndex");
 	sendSettings();
 }
 
 void PerseusGui::on_wideband_toggled(bool checked)
 {
 	m_settings.m_wideBand = checked;
+    m_settingsKeys.append("wideBand");
 	sendSettings();
 }
 
 void PerseusGui::on_decim_currentIndexChanged(int index)
 {
-	if ((index < 0) || (index > 5))
+	if ((index < 0) || (index > 5)) {
 		return;
+    }
+
 	m_settings.m_log2Decim = index;
+    m_settingsKeys.append("log2Decim");
 	sendSettings();
 }
 
@@ -298,25 +308,18 @@ void PerseusGui::on_startStop_toggled(bool checked)
     }
 }
 
-void PerseusGui::on_record_toggled(bool checked)
-{
-    if (checked) {
-        ui->record->setStyleSheet("QToolButton { background-color : red; }");
-    } else {
-        ui->record->setStyleSheet("QToolButton { background:rgb(79,79,79); }");
-    }
-
-    PerseusInput::MsgFileRecord* message = PerseusInput::MsgFileRecord::create(checked);
-    m_sampleSource->getInputMessageQueue()->push(message);
-}
-
 void PerseusGui::on_transverter_clicked()
 {
     m_settings.m_transverterMode = ui->transverter->getDeltaFrequencyAcive();
     m_settings.m_transverterDeltaFrequency = ui->transverter->getDeltaFrequency();
+    m_settings.m_iqOrder = ui->transverter->getIQOrder();
     qDebug("PerseusGui::on_transverter_clicked: %lld Hz %s", m_settings.m_transverterDeltaFrequency, m_settings.m_transverterMode ? "on" : "off");
     updateFrequencyLimits();
     m_settings.m_centerFrequency = ui->centerFrequency->getValueNew()*1000;
+    m_settingsKeys.append("transverterMode");
+    m_settingsKeys.append("transverterDeltaFrequency");
+    m_settingsKeys.append("iqOrder");
+    m_settingsKeys.append("centerFrequency");
     sendSettings();
 }
 
@@ -325,28 +328,33 @@ void PerseusGui::on_attenuator_currentIndexChanged(int index)
 	if ((index < 0) || (index >= (int) PerseusSettings::Attenuator_last)) {
 		return;
 	}
+
 	m_settings.m_attenuator = (PerseusSettings::Attenuator) index;
+    m_settingsKeys.append("attenuator");
 	sendSettings();
 }
 
 void PerseusGui::on_adcDither_toggled(bool checked)
 {
 	m_settings.m_adcDither = checked;
+    m_settingsKeys.append("adcDither");
 	sendSettings();
 }
 
 void PerseusGui::on_adcPreamp_toggled(bool checked)
 {
 	m_settings.m_adcPreamp = checked;
+    m_settingsKeys.append("adcPreamp");
 	sendSettings();
 }
 
 void PerseusGui::updateHardware()
 {
 	qDebug() << "PerseusGui::updateHardware";
-	PerseusInput::MsgConfigurePerseus* message = PerseusInput::MsgConfigurePerseus::create(m_settings, m_forceSettings);
+	PerseusInput::MsgConfigurePerseus* message = PerseusInput::MsgConfigurePerseus::create(m_settings, m_settingsKeys, m_forceSettings);
 	m_sampleSource->getInputMessageQueue()->push(message);
 	m_forceSettings = false;
+    m_settingsKeys.clear();
 	m_updateTimer.stop();
 }
 
@@ -369,7 +377,7 @@ void PerseusGui::updateStatus()
                 break;
             case DeviceAPI::StError:
                 ui->startStop->setStyleSheet("QToolButton { background-color : red; }");
-                QMessageBox::information(this, tr("Message"), m_deviceUISet->m_deviceAPI->errorMessage());
+                MessageDialog::information(this, tr("Message"), m_deviceUISet->m_deviceAPI->errorMessage());
                 break;
             default:
                 break;
@@ -406,19 +414,53 @@ int PerseusGui::getDevSampleRateIndex(uint32_t sampeRate)
 
 void PerseusGui::openDeviceSettingsDialog(const QPoint& p)
 {
-    BasicDeviceSettingsDialog dialog(this);
-    dialog.setUseReverseAPI(m_settings.m_useReverseAPI);
-    dialog.setReverseAPIAddress(m_settings.m_reverseAPIAddress);
-    dialog.setReverseAPIPort(m_settings.m_reverseAPIPort);
-    dialog.setReverseAPIDeviceIndex(m_settings.m_reverseAPIDeviceIndex);
+    if (m_contextMenuType == ContextMenuDeviceSettings)
+    {
+        BasicDeviceSettingsDialog dialog(this);
+        dialog.setUseReverseAPI(m_settings.m_useReverseAPI);
+        dialog.setReverseAPIAddress(m_settings.m_reverseAPIAddress);
+        dialog.setReverseAPIPort(m_settings.m_reverseAPIPort);
+        dialog.setReverseAPIDeviceIndex(m_settings.m_reverseAPIDeviceIndex);
+        dialog.setTitle(m_settings.m_title);
+        dialog.setDefaultTitle(getDefaultTitle());
 
-    dialog.move(p);
-    dialog.exec();
+        dialog.move(p);
+        new DialogPositioner(&dialog, false);
+        dialog.exec();
 
-    m_settings.m_useReverseAPI = dialog.useReverseAPI();
-    m_settings.m_reverseAPIAddress = dialog.getReverseAPIAddress();
-    m_settings.m_reverseAPIPort = dialog.getReverseAPIPort();
-    m_settings.m_reverseAPIDeviceIndex = dialog.getReverseAPIDeviceIndex();
+        if (dialog.result() == QDialog::Accepted)
+        {
+            m_settings.m_title = dialog.getTitle();
+            setTitle(m_settings.m_title);
+            getDeviceUISet()->m_mainSpectrumGUI->setTitle(m_settings.m_title);
+            m_settings.m_useReverseAPI = dialog.useReverseAPI();
+            m_settings.m_reverseAPIAddress = dialog.getReverseAPIAddress();
+            m_settings.m_reverseAPIPort = dialog.getReverseAPIPort();
+            m_settings.m_reverseAPIDeviceIndex = dialog.getReverseAPIDeviceIndex();
+            m_settingsKeys.append("title");
+            m_settingsKeys.append("useReverseAPI");
+            m_settingsKeys.append("reverseAPIAddress");
+            m_settingsKeys.append("reverseAPIPort");
+            m_settingsKeys.append("reverseAPIDeviceIndex");
 
-    sendSettings();
+            sendSettings();
+        }
+    }
+
+    resetContextMenuType();
+}
+
+void PerseusGui::makeUIConnections()
+{
+    QObject::connect(ui->centerFrequency, &ValueDial::changed, this, &PerseusGui::on_centerFrequency_changed);
+    QObject::connect(ui->LOppm, &QSlider::valueChanged, this, &PerseusGui::on_LOppm_valueChanged);
+    QObject::connect(ui->resetLOppm, &QPushButton::clicked, this, &PerseusGui::on_resetLOppm_clicked);
+    QObject::connect(ui->sampleRate, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &PerseusGui::on_sampleRate_currentIndexChanged);
+    QObject::connect(ui->wideband, &ButtonSwitch::toggled, this, &PerseusGui::on_wideband_toggled);
+    QObject::connect(ui->decim, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &PerseusGui::on_decim_currentIndexChanged);
+    QObject::connect(ui->startStop, &ButtonSwitch::toggled, this, &PerseusGui::on_startStop_toggled);
+    QObject::connect(ui->transverter, &TransverterButton::clicked, this, &PerseusGui::on_transverter_clicked);
+    QObject::connect(ui->attenuator, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &PerseusGui::on_attenuator_currentIndexChanged);
+    QObject::connect(ui->adcDither, &ButtonSwitch::toggled, this, &PerseusGui::on_adcDither_toggled);
+    QObject::connect(ui->adcPreamp, &ButtonSwitch::toggled, this, &PerseusGui::on_adcPreamp_toggled);
 }

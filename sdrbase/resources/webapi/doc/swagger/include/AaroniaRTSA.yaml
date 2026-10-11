@@ -1,0 +1,95 @@
+AaroniaRTSASettings:
+  description: AaroniaRTSA
+  properties:
+    title:
+      type: string
+      description: "User-visible title."
+    centerFrequency:
+      description: Sets the center frequency (Hz) of the distant IQ demodulator
+      type: integer
+      format: int64
+    sampleRate:
+      description: Sets the sample rate (S/s) and span (Hz) of the distant IQ demodulator
+      type: integer
+    serverAddress:
+      description: Distant AaroniaRTSA instance URL or IPv4 address with port
+      type: string
+    useReverseAPI:
+      description: Synchronize with reverse API (1 for yes, 0 for no)
+      type: integer
+      minimum: 0
+      maximum: 1
+    reverseAPIAddress:
+      type: string
+      description: "IPv4 address or host name of the reverse API peer."
+    reverseAPIPort:
+      type: integer
+      description: "TCP port of the reverse API peer."
+      minimum: 1
+      maximum: 65535
+    reverseAPIDeviceIndex:
+      type: integer
+      description: "Device-set index used by the reverse API peer."
+
+AaroniaRTSAReport:
+  description: AaroniaRTSA
+  properties:
+    status:
+      type: integer
+      minimum: 0
+      maximum: 4
+      description: >
+        Connection to RTSA server status:
+          * 0 - Idle
+          * 1 - Unstable
+          * 2 - Connected
+          * 3 - Error
+          * 4 - Disconnected
+
+AaroniaRTSAOutputSettings:
+  description: AaroniaRTSAOutput
+  properties:
+    title:
+      type: string
+      description: "User-visible title."
+    centerFrequency:
+      description: Sets the center frequency (Hz) of the distant IQ demodulator
+      type: integer
+      format: int64
+    sampleRate:
+      description: Sets the sample rate (S/s) and span (Hz) of the distant IQ demodulator
+      type: integer
+    serverAddress:
+      description: Distant AaroniaRTSA instance URL or IPv4 address with port
+      type: string
+    useReverseAPI:
+      description: Synchronize with reverse API (1 for yes, 0 for no)
+      type: integer
+      minimum: 0
+      maximum: 1
+    reverseAPIAddress:
+      type: string
+      description: "IPv4 address or host name of the reverse API peer."
+    reverseAPIPort:
+      type: integer
+      description: "TCP port of the reverse API peer."
+      minimum: 1
+      maximum: 65535
+    reverseAPIDeviceIndex:
+      type: integer
+      description: "Device-set index used by the reverse API peer."
+
+AaroniaRTSAOutputReport:
+  description: AaroniaRTSAOutput
+  properties:
+    status:
+      type: integer
+      minimum: 0
+      maximum: 4
+      description: >
+        Connection to RTSA server status:
+          * 0 - Idle
+          * 1 - Unstable
+          * 2 - Connected
+          * 3 - Error
+          * 4 - Disconnected

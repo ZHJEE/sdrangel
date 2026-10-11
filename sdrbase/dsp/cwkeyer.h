@@ -1,6 +1,8 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2016 F4EXB                                                      //
-// written by Edouard Griffiths                                                  //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2019 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
+// Copyright (C) 2022 Jiří Pinkava <jiri.pinkava@rossum.ai>                      //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -20,11 +22,13 @@
 #define SDRBASE_DSP_CWKEYER_H_
 
 #include <QObject>
-#include <QMutex>
+#include <QRecursiveMutex>
 
 #include "export.h"
 #include "util/message.h"
+#include "util/messagequeue.h"
 #include "cwkeyersettings.h"
+#include "SWGChannelSettings.h"
 
 /**
  * Ancillary class to smooth out CW transitions with a sine shape
@@ -39,7 +43,7 @@ public:
     bool getFadeSample(bool on, float& sample);
 
 private:
-    QMutex m_mutex;
+    QRecursiveMutex m_mutex;
     unsigned int m_fadeInCounter;
     unsigned int m_fadeOutCounter;
     unsigned int m_nbFadeSamples;
@@ -74,14 +78,14 @@ public:
         { }
     };
 
-    typedef enum
+    enum CWKeyIambicState
     {
         KeySilent,
         KeyDot,
         KeyDash
-    } CWKeyIambicState;
+    };
 
-    typedef enum
+    enum CWTextState
     {
     	TextStart,
 		TextStartChar,
@@ -91,7 +95,7 @@ public:
 		TextWordSpace,
 		TextEnd,
 		TextStop
-    } CWTextState;
+    };
 
     CWKeyer();
     ~CWKeyer();
@@ -99,12 +103,9 @@ public:
     void resetToDefaults();
     QByteArray serialize() const;
     bool deserialize(const QByteArray& data);
+    MessageQueue *getInputMessageQueue() { return &m_inputMessageQueue; } //!< Get the queue for asynchronous inbound communication
 
     void setSampleRate(int sampleRate);
-    void setWPM(int wpm);
-    void setText(const QString& text);
-    void setMode(CWKeyerSettings::CWMode mode);
-    void setLoop(bool loop) { m_settings.m_loop = loop; }
     const CWKeyerSettings& getSettings() const { return m_settings; }
 
     void reset() { m_keyIambicState = KeySilent; }
@@ -114,10 +115,25 @@ public:
     bool eom();
     void resetText() { m_textState = TextStart; }
     void stopText() { m_textState = TextStop; }
+    void setKeyboardDots();
+    void setKeyboardDashes();
+    void setKeyboardSilence();
+
+    static void webapiSettingsPutPatch(
+        const QStringList& channelSettingsKeys,
+        CWKeyerSettings& cwKeyerSettings,
+        SWGSDRangel::SWGCWKeyerSettings *apiCwKeyerSettings
+    );
+
+    static void webapiFormatChannelSettings(
+        SWGSDRangel::SWGCWKeyerSettings *apiCwKeyerSettings,
+        const CWKeyerSettings& cwKeyerSettings
+    );
 
 private:
-    QMutex m_mutex;
+    QRecursiveMutex m_mutex;
     CWKeyerSettings m_settings;
+    MessageQueue m_inputMessageQueue;
     int m_dotLength;   //!< dot length in samples
     int m_textPointer;
     int m_elementPointer;
@@ -135,8 +151,13 @@ private:
 
     static const signed char m_asciiToMorse[128][7];
 
+    void applySettings(const CWKeyerSettings& settings, bool force = false);
+    bool handleMessage(const Message& cmd);
     void nextStateIambic();
     void nextStateText();
+
+private slots:
+    void handleInputMessages();
 };
 
 #endif /* SDRBASE_DSP_CWKEYER_H_ */

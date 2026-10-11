@@ -1,6 +1,8 @@
 ///////////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
 // written by Christian Daniel                                                   //
+// Copyright (C) 2016-2019 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
+// Copyright (C) 2020 Kacper Michajłow <kasper93@gmail.com>                      //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -17,93 +19,137 @@
 ///////////////////////////////////////////////////////////////////////////////////
 
 #include <QtGlobal>
-#include <stdio.h>
-#define _USE_MATH_DEFINES
-#include <math.h>
+#include <cmath>
 #include "dsp/nco.h"
-
-#undef M_PI
-#define M_PI		3.14159265358979323846
 
 Real NCO::m_table[NCO::TableSize];
 bool NCO::m_tableInitialized = false;
 
 void NCO::initTable()
 {
-	if(m_tableInitialized)
+	if (m_tableInitialized) {
 		return;
+	}
 
-	for(int i = 0; i < TableSize; i++)
+	for (unsigned i = 0; i < TableSize; i++) {
 		m_table[i] = cos((2.0 * M_PI * i) / TableSize);
+	}
 
 	m_tableInitialized = true;
 }
 
-NCO::NCO()
+NCO::NCO() :
+    m_phaseIncrement(0),
+    m_phase(0),
+    m_phaseDithered(0),
+    m_lfsr(0),
+    m_ditherMask(0)
 {
 	initTable();
 	m_phase = 0;
 	m_phaseIncrement = 0;
 }
 
-void NCO::setFreq(Real freq, Real sampleRate)
+uint64_t NCO::prsg63()
 {
-	m_phaseIncrement = (freq * TableSize) / sampleRate;
-	qDebug("NCO freq: %f phase inc %d", freq, m_phaseIncrement);
+	m_lfsr = m_lfsr << 32 | (m_lfsr << 1 ^ m_lfsr << 2) >> 32;
+	m_lfsr = m_lfsr << 32 | (m_lfsr << 1 ^ m_lfsr << 2) >> 32;
+	return m_lfsr;
 }
 
-float NCO::next()
+void NCO::setFreq(Real freq, Real sampleRate, bool integerPhase, int ditherBits)
+{
+	m_phaseIncrement = (Phase) (qint64) std::round((freq * pow(2.0, PhaseBits)) / sampleRate);
+	if (integerPhase) {
+		m_phaseIncrement &= ~FracMask;
+	}
+	m_ditherMask = (1ull << ditherBits) - 1;
+	qDebug("NCO freq: %f phase inc: %u sr: %f dither: %d", freq, m_phaseIncrement, sampleRate, ditherBits);
+}
+
+Real NCO::next()
 {
 	nextPhase();
-	return m_table[m_phase];
+	return get();
 }
 
 Complex NCO::nextIQ()
 {
 	nextPhase();
-	return Complex(m_table[m_phase], -m_table[(m_phase + TableSize / 4) % TableSize]);
+	return getIQ();
 }
 
 Complex NCO::nextQI()
 {
+	Complex iq = nextIQ();
+	return Complex(iq.imag(), iq.real());
+}
+
+Complex NCO::nextIQ(float imbalance)
+{
 	nextPhase();
-	return Complex(-m_table[(m_phase + TableSize / 4) % TableSize], m_table[m_phase]);
+	Phase phaseQ = imbalance < 0.0f ? m_phase + (Phase) (imbalance * powf(2.0f, PhaseBits)) : m_phase;
+	Phase phaseI = imbalance < 0.0f ? m_phase : m_phase + (Phase) (imbalance * powf(2.0f, PhaseBits));
+	Phase phaseIIntBits = (phaseI >> IntShift) & IntMask;
+	Phase phaseIFracBits = phaseI & FracMask;
+	Phase phaseQIntBits = (phaseQ >> IntShift) & IntMask;
+	Phase phaseQFracBits = phaseQ & FracMask;
+	unsigned i = phaseIIntBits;
+	unsigned j = (i + 1) & IntMask;
+	unsigned k = (phaseQIntBits + TableSize / 4) & IntMask;
+	unsigned l = (k + 1) & IntMask;
+	Frac fracI = ((Frac) phaseIFracBits) / Denom;
+	Frac fracQ = ((Frac) phaseQFracBits) / Denom;
+	Frac s = m_table[i] + fracI * (m_table[j] - m_table[i]); // Linear interpolation for sin
+	Frac c = m_table[k] + fracQ * (m_table[l] - m_table[k]); // Linear interpolation for cos
+	return Complex(s, -c);
 }
 
 void NCO::nextIQMul(Real& i, Real& q)
 {
-    nextPhase();
     Real x = i;
     Real y = q;
-    const Real& u = m_table[m_phase];
-    const Real& v = -m_table[(m_phase + TableSize / 4) % TableSize];
-    i = x*u - y*v;
-    q = x*v + y*u;
+	Complex iq = nextIQ();
+    i = x*iq.real() - y*iq.imag();
+    q = x*iq.imag() + y*iq.real();
 }
 
-float NCO::get()
+Real NCO::get() const
 {
-	return m_table[m_phase];
+	Phase intBits = (m_phaseDithered >> IntShift) & IntMask;
+	Phase fracBits = m_phaseDithered & FracMask;
+	unsigned i = intBits;
+	unsigned j = (i + 1) & IntMask;
+	Frac frac = ((Frac) fracBits) / Denom;
+	return m_table[i] + frac * (m_table[j] - m_table[i]); // Linear interpolation
 }
 
-Complex NCO::getIQ()
+Complex NCO::getIQ() const
 {
-	return Complex(m_table[m_phase], -m_table[(m_phase + TableSize / 4) % TableSize]);
+	Phase intBits = (m_phaseDithered >> IntShift) & IntMask;
+	Phase fracBits = m_phaseDithered & FracMask;
+	unsigned i = intBits;
+	unsigned j = (i + 1) & IntMask;
+	unsigned k = (i + TableSize / 4) & IntMask;
+	unsigned l = (j + TableSize / 4) & IntMask;
+	Frac frac = ((Frac) fracBits) / Denom;
+	Frac s = m_table[i] + frac * (m_table[j] - m_table[i]); // Linear interpolation for sin
+	Frac c = m_table[k] + frac * (m_table[l] - m_table[k]); // Linear interpolation for cos
+	return Complex(s, -c);
 }
 
-void NCO::getIQ(Complex& c)
+void NCO::getIQ(Complex& c) const
 {
-	c.real(m_table[m_phase]);
-	c.imag(-m_table[(m_phase + TableSize / 4) % TableSize]);
+	c = getIQ();
 }
 
-Complex NCO::getQI()
+Complex NCO::getQI() const
 {
-	return Complex(-m_table[(m_phase + TableSize / 4) % TableSize], m_table[m_phase]);
+	Complex iq = getIQ();
+	return Complex(iq.imag(), iq.real());
 }
 
-void NCO::getQI(Complex& c)
+void NCO::getQI(Complex& c) const
 {
-	c.imag(m_table[m_phase]);
-	c.real(-m_table[(m_phase + TableSize / 4) % TableSize]);
+	c = getQI();
 }

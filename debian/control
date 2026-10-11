@@ -1,24 +1,102 @@
 Source: sdrangel
+Maintainer: Edouard Griffiths (F4EXB) <f4exb06@gmail.com>
 Section: hamradio
 Priority: optional
-Maintainer: Edouard Griffiths, F4EXB <f4exb06@gmail.com>
-Build-Depends: debhelper (>=9)
-Standards-Version: 3.9.6
+Standards-Version: 3.9.2
 Homepage: https://github.com/f4exb/sdrangel
-#Vcs-Git: git://anonscm.debian.org/collab-maint/sdrangel.git
-#Vcs-Browser: https://anonscm.debian.org/cgit/collab-maint/sdrangel.git
+Build-Depends: debhelper (>= 9),
+ libfftw3-dev,
+ libopengl-dev,
+ qtbase5-dev | qt6-base-dev,
+ libqt5opengl5-dev | qt6-base-dev,
+ qttools5-dev | qt6-tools-dev,
+ qttools5-dev-tools | qt6-tools-dev-tools,
+ qtmultimedia5-dev | qt6-multimedia-dev,
+ libqt5multimedia5-plugins | qt6-multimedia-dev,
+ libqt5websockets5-dev | qt6-websockets-dev,
+ libqt5quick5 | libqt6quick6,
+ libqt5texttospeech5-dev | qt6-speech-dev,
+ libqt5gamepad5-dev | qt6-base-dev,
+ libqt5svg5-dev | qt6-svg-dev,
+ qml-module-qtlocation | qml6-module-qtlocation,
+ qml-module-qtpositioning | qml6-module-qtpositioning,
+ qml-module-qtquick-window2 | qml6-module-qtquick-window,
+ qml-module-qtquick-dialogs | qml6-module-qtquick-dialogs,
+ qml-module-qtquick-controls | qml6-module-qtquick-controls,
+ qml-module-qtquick-controls2 | qml6-module-qtquick-controls,
+ qml-module-qtquick-layouts | qml6-module-qtquick-layouts,
+ qml-module-qtgraphicaleffects | qml6-module-qt5compat-graphicaleffects,
+ libqt5serialport5-dev | qt6-serialport-dev,
+ libqt5charts5-dev | qt6-charts-dev,
+ qtdeclarative5-dev | qt6-declarative-dev,
+ qtpositioning5-dev | qt6-positioning-dev,
+ qtlocation5-dev | qt6-location-dev,
+ qtwebengine5-dev | qt6-webengine-dev,
+ qtbase5-private-dev | qt6-base-private-dev,
+ qtbase5-dev | qt6-scxml-dev,
+ libusb-1.0-0-dev,
+ libhidapi-dev,
+ libboost-all-dev,
+ libasound2-dev,
+ libopencv-dev,
+ libopencv-imgcodecs-dev,
+ libxml2-dev,
+ bison,
+ cmake,
+ flex,
+ ffmpeg,
+ ninja-build,
+ libfaad-dev,
+ libflac-dev,
+ libavcodec-dev,
+ libavformat-dev,
+ libopus-dev,
+ libairspy-dev,
+ libhackrf-dev,
+ libuhd-dev,
+ libhamlib-dev,
+ zlib1g-dev,
+ libunwind-dev,
+ git,
+ ca-certificates,
+ libavahi-client-dev,
+ libavahi-common-dev,
+ libaio-dev,
+ xxd,
+ libcodec2-dev,
+ libbladerf-dev,
+ libsoapysdr-dev,
+ libiio-dev,
+ python3-mako,
+ python3-cheetah,
+ python3-numpy
+# TODO:
+#   - more dependencies based on version; newer has more devices
+#   - manage dependencies not present upstream
 
 Package: sdrangel
 Architecture: any
-Depends: libc6, libasound2, libfftw3-single3, libgcc1, libgl1-mesa-glx, libqt5core5a, libqt5gui5, libqt5multimedia5, libqt5network5, libqt5opengl5, libqt5widgets5, libqt5multimedia5-plugins, libstdc++6, libusb-1.0-0, libopencv-dev, pulseaudio, libxml2, ffmpeg, libavcodec-dev, libavformat-dev, libopus-dev, libcodec2-dev, ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends},
+ ${misc:Depends},
+ ${qt:Depends},
+ libasound2,
+ libgl1,
+ libglx-mesa0,
+ pulseaudio | pipewire-pulse,
+ ffmpeg,
+ gstreamer1.0-libav
 Description: SDR/Analyzer/Generator front-end for various hardware
- SDR/Analyzer/Generator front-end for Airspy, BladeRF, HackRF, RTL-SDR, FunCube, LimeSDR, PlutoSDR.
- Also File source and sink for I/Q samples, network I/Q sources with remote instance.
- Based on Qt5 framework and OpenGL for the spectrum and scope rendering.
+ SDR/Analyzer/Generator front-end for Airspy, BladeRF, HackRF,
+ RTL-SDR, FunCube, LimeSDR, PlutoSDR, RSP, USRP.
+ Also File source and sink for I/Q samples, network I/Q sources with
+ remote instance.
+ Based on the Qt framework and OpenGL for the spectrum and scope rendering.
  Builds on Linux, Windows and Mac O/S
  Reception modes supported:
-   Analog: AM, ATV, NFM, WFM, SSB, broadcast FM
-   Digital: D-Star, Yaesu SF, DMR, dPMR, LoRa
+   Analog: AM, ATV, NFM, WFM, SSB, broadcast FM, APT, ILS, VOR
+   Digital: D-Star, Yaesu SF, DMR, dPMR, FreeDV, M17, DAB, DVB-S, LoRa, ADS-B, Packet (AX.25/APRS), AIS, FT8, Navtex, Radiosonde, RTTY, Pager, Inmarsat C
    Analyzer: Generic channel
  Transmission modes supported:
    Analog: AM, ATV, NFM, SSB, WFM
+   Digital: DVB-S, Packet (AX.25), AIS, 802.15.4
+Homepage: https://github.com/f4exb/sdrangel

@@ -1,50 +1,75 @@
 project(modnfm)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(modnfm_SOURCES
-	nfmmod.cpp
-	nfmmodgui.cpp
+    nfmmod.cpp
+    nfmmodbaseband.cpp
+    nfmmoddcs.cpp
+    nfmmodsource.cpp
 	nfmmodplugin.cpp
-	nfmmodsettings.cpp
+    nfmmodsettings.cpp
+    nfmmodwebapiadapter.cpp
 )
 
 set(modnfm_HEADERS
 	nfmmod.h
-	nfmmodgui.h
+    nfmmodbaseband.h
+    nfmmoddcs.h
+    nfmmodsource.h
 	nfmmodplugin.h
-	nfmmodsettings.h
-)
-
-set(modnfm_FORMS
-	nfmmodgui.ui
+    nfmmodsettings.h
+    nfmmodwebapiadapter.h
 )
 
 include_directories(
-	.
-	${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
+        ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
 )
 
-add_definitions(${QT_DEFINITIONS})
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
+if(NOT SERVER_MODE)
+    set(modnfm_SOURCES
+        ${modnfm_SOURCES}
+        nfmmodgui.cpp
 
-qt5_wrap_ui(modnfm_FORMS_HEADERS ${modnfm_FORMS})
+        nfmmodgui.ui
+    )
+    set(modnfm_HEADERS
+        ${modnfm_HEADERS}
+        nfmmodgui.h
+    )
 
-add_library(modnfm SHARED
-	${modnfm_SOURCES}
-	${modnfm_HEADERS_MOC}
-	${modnfm_FORMS_HEADERS}
-)
+    set(TARGET_NAME ${PLUGINS_PREFIX}modnfm)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}modnfmsrv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
 
-target_link_libraries(modnfm
-	${QT_LIBRARIES}
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${modnfm_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME NFMModPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${modnfm_SOURCES})
+endif()
+
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+target_link_libraries(${TARGET_NAME} PRIVATE
+        Qt::Core
+        ${TARGET_LIB}
 	sdrbase
-	sdrgui
-	swagger
+	${TARGET_LIB_GUI}
+        swagger
 )
 
-target_link_libraries(modnfm Qt5::Core Qt5::Widgets)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-install(TARGETS modnfm DESTINATION lib/plugins/channeltx)
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

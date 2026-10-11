@@ -1,5 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2018-2020, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>    //
+// Copyright (C) 2022-2023 Jon Beniston, M7RCE <jon@beniston.com>                //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -21,27 +22,26 @@
 #include <QDateTime>
 #include <QString>
 #include <QMessageBox>
+#include <QFileDialog>
 
 #include "ui_testsourcegui.h"
-#include "plugin/pluginapi.h"
+#include "gui/messagedialog.h"
 #include "gui/colormapper.h"
 #include "gui/glspectrum.h"
-#include "gui/crightclickenabler.h"
 #include "gui/basicdevicesettingsdialog.h"
-#include "dsp/dspengine.h"
+#include "gui/dialpopup.h"
+#include "gui/dialogpositioner.h"
+#include "mainspectrum/mainspectrumgui.h"
 #include "dsp/dspcommands.h"
 #include "util/db.h"
-
-#include "mainwindow.h"
 
 #include "testsourcegui.h"
 #include "device/deviceapi.h"
 #include "device/deviceuiset.h"
 
 TestSourceGui::TestSourceGui(DeviceUISet *deviceUISet, QWidget* parent) :
-    QWidget(parent),
+    DeviceGUI(parent),
     ui(new Ui::TestSourceGui),
-    m_deviceUISet(deviceUISet),
     m_settings(),
     m_doApplySettings(true),
     m_forceSettings(true),
@@ -50,11 +50,16 @@ TestSourceGui::TestSourceGui(DeviceUISet *deviceUISet, QWidget* parent) :
     m_lastEngineState(DeviceAPI::StNotStarted)
 {
     qDebug("TestSourceGui::TestSourceGui");
+    m_deviceUISet = deviceUISet;
+    setAttribute(Qt::WA_DeleteOnClose, true);
     m_sampleSource = m_deviceUISet->m_deviceAPI->getSampleSource();
 
-    ui->setupUi(this);
+    ui->setupUi(getContents());
+    sizeToContents();
+    getContents()->setStyleSheet("#TestSourceGui { background-color: rgb(64, 64, 64); }");
+    m_helpURL = "plugins/samplesource/testsource/readme.md";
     ui->centerFrequency->setColorMapper(ColorMapper(ColorMapper::GrayGold));
-    ui->centerFrequency->setValueRange(7, 0, 9999999);
+    ui->centerFrequency->setValueRange(9, 0, 999999999);
     ui->sampleRate->setColorMapper(ColorMapper(ColorMapper::GrayGreenYellow));
     ui->sampleRate->setValueRange(7, 48000, 9999999);
     ui->frequencyShift->setColorMapper(ColorMapper(ColorMapper::GrayGold));
@@ -62,6 +67,7 @@ TestSourceGui::TestSourceGui(DeviceUISet *deviceUISet, QWidget* parent) :
     ui->frequencyShiftLabel->setText(QString("%1").arg(QChar(0x94, 0x03)));
 
     displaySettings();
+    makeUIConnections();
 
     connect(&m_updateTimer, SIGNAL(timeout()), this, SLOT(updateHardware()));
     connect(&m_statusTimer, SIGNAL(timeout()), this, SLOT(updateStatus()));
@@ -70,12 +76,15 @@ TestSourceGui::TestSourceGui(DeviceUISet *deviceUISet, QWidget* parent) :
     connect(&m_inputMessageQueue, SIGNAL(messageEnqueued()), this, SLOT(handleInputMessages()), Qt::QueuedConnection);
     m_sampleSource->setMessageQueueToGUI(&m_inputMessageQueue);
 
-    CRightClickEnabler *startStopRightClickEnabler = new CRightClickEnabler(ui->startStop);
-    connect(startStopRightClickEnabler, SIGNAL(rightClick(const QPoint &)), this, SLOT(openDeviceSettingsDialog(const QPoint &)));
+    connect(this, SIGNAL(customContextMenuRequested(const QPoint &)), this, SLOT(openDeviceSettingsDialog(const QPoint &)));
+    DialPopup::addPopupsToChildDials(this);
+    m_resizer.enableChildMouseTracking();
 }
 
 TestSourceGui::~TestSourceGui()
 {
+    m_statusTimer.stop();
+    m_updateTimer.stop();
     delete ui;
 }
 
@@ -84,32 +93,11 @@ void TestSourceGui::destroy()
     delete this;
 }
 
-void TestSourceGui::setName(const QString& name)
-{
-    setObjectName(name);
-}
-
-QString TestSourceGui::getName() const
-{
-    return objectName();
-}
-
 void TestSourceGui::resetToDefaults()
 {
     m_settings.resetToDefaults();
     displaySettings();
-    sendSettings();
-}
-
-qint64 TestSourceGui::getCenterFrequency() const
-{
-    return m_settings.m_centerFrequency;
-}
-
-void TestSourceGui::setCenterFrequency(qint64 centerFrequency)
-{
-    m_settings.m_centerFrequency = centerFrequency;
-    displaySettings();
+    m_forceSettings = true;
     sendSettings();
 }
 
@@ -120,12 +108,15 @@ QByteArray TestSourceGui::serialize() const
 
 bool TestSourceGui::deserialize(const QByteArray& data)
 {
-    if(m_settings.deserialize(data)) {
+    if (m_settings.deserialize(data))
+    {
         displaySettings();
         m_forceSettings = true;
         sendSettings();
         return true;
-    } else {
+    }
+    else
+    {
         resetToDefaults();
         return false;
     }
@@ -143,6 +134,7 @@ void TestSourceGui::on_startStop_toggled(bool checked)
 void TestSourceGui::on_centerFrequency_changed(quint64 value)
 {
     m_settings.m_centerFrequency = value * 1000;
+    m_settingsKeys.append("centerFrequency");
     sendSettings();
 }
 
@@ -153,12 +145,14 @@ void TestSourceGui::on_autoCorr_currentIndexChanged(int index)
     }
 
     m_settings.m_autoCorrOptions = (TestSourceSettings::AutoCorrOptions) index;
+    m_settingsKeys.append("autoCorrOptions");
     sendSettings();
 }
 
 void TestSourceGui::on_frequencyShift_changed(qint64 value)
 {
     m_settings.m_frequencyShift = value;
+    m_settingsKeys.append("frequencyShift");
     sendSettings();
 }
 
@@ -169,6 +163,7 @@ void TestSourceGui::on_decimation_currentIndexChanged(int index)
     }
 
     m_settings.m_log2Decim = index;
+    m_settingsKeys.append("log2Decim");
     sendSettings();
 }
 
@@ -179,6 +174,7 @@ void TestSourceGui::on_fcPos_currentIndexChanged(int index)
     }
 
     m_settings.m_fcPos = (TestSourceSettings::fcPos_t) index;
+    m_settingsKeys.append("fcPos");
     sendSettings();
 }
 
@@ -187,6 +183,8 @@ void TestSourceGui::on_sampleRate_changed(quint64 value)
     updateFrequencyShiftLimit();
     m_settings.m_frequencyShift = ui->frequencyShift->getValueNew();
     m_settings.m_sampleRate = value;
+    m_settingsKeys.append("frequencyShift");
+    m_settingsKeys.append("sampleRate");
     sendSettings();
 }
 
@@ -201,6 +199,8 @@ void TestSourceGui::on_sampleSize_currentIndexChanged(int index)
     displayAmplitude();
     m_settings.m_amplitudeBits = ui->amplitudeCoarse->value() * 100 + ui->amplitudeFine->value();
     m_settings.m_sampleSizeIndex = index;
+    m_settingsKeys.append("amplitudeBits");
+    m_settingsKeys.append("sampleSizeIndex");
     sendSettings();
 }
 
@@ -210,6 +210,7 @@ void TestSourceGui::on_amplitudeCoarse_valueChanged(int value)
     updateAmpFineLimit();
     displayAmplitude();
     m_settings.m_amplitudeBits = ui->amplitudeCoarse->value() * 100 + ui->amplitudeFine->value();
+    m_settingsKeys.append("amplitudeBits");
     sendSettings();
 }
 
@@ -218,6 +219,7 @@ void TestSourceGui::on_amplitudeFine_valueChanged(int value)
     (void) value;
     displayAmplitude();
     m_settings.m_amplitudeBits = ui->amplitudeCoarse->value() * 100 + ui->amplitudeFine->value();
+    m_settingsKeys.append("amplitudeBits");
     sendSettings();
 }
 
@@ -228,6 +230,7 @@ void TestSourceGui::on_modulation_currentIndexChanged(int index)
     }
 
     m_settings.m_modulation = (TestSourceSettings::Modulation) index;
+    m_settingsKeys.append("modulation");
     sendSettings();
 }
 
@@ -235,6 +238,7 @@ void TestSourceGui::on_modulationFrequency_valueChanged(int value)
 {
     m_settings.m_modulationTone = value;
     ui->modulationFrequencyText->setText(QString("%1").arg(m_settings.m_modulationTone / 100.0, 0, 'f', 2));
+    m_settingsKeys.append("modulationTone");
     sendSettings();
 }
 
@@ -242,6 +246,7 @@ void TestSourceGui::on_amModulation_valueChanged(int value)
 {
     m_settings.m_amModulation = value;
     ui->amModulationText->setText(QString("%1").arg(m_settings.m_amModulation));
+    m_settingsKeys.append("amModulation");
     sendSettings();
 }
 
@@ -249,6 +254,7 @@ void TestSourceGui::on_fmDeviation_valueChanged(int value)
 {
     m_settings.m_fmDeviation = value;
     ui->fmDeviationText->setText(QString("%1").arg(m_settings.m_fmDeviation / 10.0, 0, 'f', 1));
+    m_settingsKeys.append("fmDeviation");
     sendSettings();
 }
 
@@ -256,6 +262,7 @@ void TestSourceGui::on_dcBias_valueChanged(int value)
 {
     ui->dcBiasText->setText(QString(tr("%1 %").arg(value)));
     m_settings.m_dcFactor = value / 100.0f;
+    m_settingsKeys.append("dcFactor");
     sendSettings();
 }
 
@@ -263,6 +270,7 @@ void TestSourceGui::on_iBias_valueChanged(int value)
 {
     ui->iBiasText->setText(QString(tr("%1 %").arg(value)));
     m_settings.m_iFactor = value / 100.0f;
+    m_settingsKeys.append("iFactor");
     sendSettings();
 }
 
@@ -270,6 +278,7 @@ void TestSourceGui::on_qBias_valueChanged(int value)
 {
     ui->qBiasText->setText(QString(tr("%1 %").arg(value)));
     m_settings.m_qFactor = value / 100.0f;
+    m_settingsKeys.append("qFactor");
     sendSettings();
 }
 
@@ -277,19 +286,44 @@ void TestSourceGui::on_phaseImbalance_valueChanged(int value)
 {
     ui->phaseImbalanceText->setText(QString(tr("%1 %").arg(value)));
     m_settings.m_phaseImbalance = value / 100.0f;
+    m_settingsKeys.append("phaseImbalance");
     sendSettings();
 }
 
-void TestSourceGui::on_record_toggled(bool checked)
+void TestSourceGui::on_period_valueChanged(int value)
 {
-    if (checked) {
-        ui->record->setStyleSheet("QToolButton { background-color : red; }");
+    m_settings.m_period = value;
+    displayPeriod();
+    m_settingsKeys.append("period");
+    sendSettings();
+}
+
+void TestSourceGui::on_dutyCycle_valueChanged(int value)
+{
+    m_settings.m_dutyCycle = value;
+    ui->dutyCycleText->setText(QString("%1").arg(m_settings.m_dutyCycle));
+    m_settingsKeys.append("dutyCycle");
+    sendSettings();
+}
+
+void TestSourceGui::displayPeriod()
+{
+    float periodSecs = m_settings.m_period / (float) m_settings.m_sampleRate;
+    QString periodText;
+
+    if (periodSecs >= 1.0) {
+        periodText = QString("%1s").arg(periodSecs, 0, 'f', 1);
+    } else if (periodSecs >= 1e-3) {
+        periodText = QString("%1ms").arg(periodSecs * 1e3, 0, 'f', 1);
+    } else if (periodSecs >= 1e-6) {
+        periodText = QString("%1us").arg(periodSecs * 1e6, 0, 'f', 1);
+    } else if (periodSecs >= 1e-9) {
+        periodText = QString("%1ns").arg(periodSecs * 1e9, 0, 'f', 1);
     } else {
-        ui->record->setStyleSheet("QToolButton { background:rgb(79,79,79); }");
+        periodText = QString("%1ps").arg(periodSecs * 1e12, 0, 'f', 1);
     }
 
-    TestSourceInput::MsgFileRecord* message = TestSourceInput::MsgFileRecord::create(checked);
-    m_sampleSource->getInputMessageQueue()->push(message);
+    ui->periodText->setText(QString("(%1)").arg(periodText));
 }
 
 void TestSourceGui::displayAmplitude()
@@ -373,6 +407,8 @@ void TestSourceGui::displaySettings()
     blockApplySettings(true);
     ui->sampleSize->blockSignals(true);
 
+    setTitle(m_settings.m_title);
+    getDeviceUISet()->m_mainSpectrumGUI->setTitle(m_settings.m_title);
     ui->centerFrequency->setValue(m_settings.m_centerFrequency / 1000);
     ui->decimation->setCurrentIndex(m_settings.m_log2Decim);
     ui->fcPos->setCurrentIndex((int) m_settings.m_fcPos);
@@ -407,12 +443,16 @@ void TestSourceGui::displaySettings()
     ui->amModulationText->setText(QString("%1").arg(m_settings.m_amModulation));
     ui->fmDeviation->setValue(m_settings.m_fmDeviation);
     ui->fmDeviationText->setText(QString("%1").arg(m_settings.m_fmDeviation / 10.0, 0, 'f', 1));
+    ui->period->setValue(m_settings.m_period);
+    displayPeriod();
+    ui->dutyCycle->setValue(m_settings.m_dutyCycle);
+    ui->dutyCycleText->setText(QString("%1").arg(m_settings.m_dutyCycle));
     blockApplySettings(false);
 }
 
 void TestSourceGui::sendSettings()
 {
-    if(!m_updateTimer.isActive()) {
+    if (!m_updateTimer.isActive()) {
         m_updateTimer.start(100);
     }
 }
@@ -421,9 +461,10 @@ void TestSourceGui::updateHardware()
 {
     if (m_doApplySettings)
     {
-        TestSourceInput::MsgConfigureTestSource* message = TestSourceInput::MsgConfigureTestSource::create(m_settings, m_forceSettings);
+        TestSourceInput::MsgConfigureTestSource* message = TestSourceInput::MsgConfigureTestSource::create(m_settings, m_settingsKeys, m_forceSettings);
         m_sampleSource->getInputMessageQueue()->push(message);
         m_forceSettings = false;
+        m_settingsKeys.clear();
         m_updateTimer.stop();
     }
 }
@@ -447,7 +488,7 @@ void TestSourceGui::updateStatus()
                 break;
             case DeviceAPI::StError:
                 ui->startStop->setStyleSheet("QToolButton { background-color : red; }");
-                QMessageBox::information(this, tr("Message"), m_deviceUISet->m_deviceAPI->errorMessage());
+                MessageDialog::information(this, tr("Message"), m_deviceUISet->m_deviceAPI->errorMessage());
                 break;
             default:
                 break;
@@ -463,7 +504,13 @@ bool TestSourceGui::handleMessage(const Message& message)
     {
         qDebug("TestSourceGui::handleMessage: MsgConfigureTestSource");
         const TestSourceInput::MsgConfigureTestSource& cfg = (TestSourceInput::MsgConfigureTestSource&) message;
-        m_settings = cfg.getSettings();
+
+        if (cfg.getForce()) {
+            m_settings = cfg.getSettings();
+        } else {
+            m_settings.applySettings(cfg.getSettingsKeys(), cfg.getSettings());
+        }
+
         displaySettings();
         return true;
     }
@@ -503,10 +550,11 @@ void TestSourceGui::handleInputMessages()
         }
         else
         {
-            if (handleMessage(*message))
+            if (!handleMessage(*message))
             {
-                delete message;
+                qDebug("%s: unhandled message: %s", Q_FUNC_INFO, message->getIdentifier());
             }
+            delete message;
         }
     }
 }
@@ -520,19 +568,62 @@ void TestSourceGui::updateSampleRateAndFrequency()
 
 void TestSourceGui::openDeviceSettingsDialog(const QPoint& p)
 {
-    BasicDeviceSettingsDialog dialog(this);
-    dialog.setUseReverseAPI(m_settings.m_useReverseAPI);
-    dialog.setReverseAPIAddress(m_settings.m_reverseAPIAddress);
-    dialog.setReverseAPIPort(m_settings.m_reverseAPIPort);
-    dialog.setReverseAPIDeviceIndex(m_settings.m_reverseAPIDeviceIndex);
+    if (m_contextMenuType == ContextMenuDeviceSettings)
+    {
+        BasicDeviceSettingsDialog dialog(this);
+        dialog.setUseReverseAPI(m_settings.m_useReverseAPI);
+        dialog.setReverseAPIAddress(m_settings.m_reverseAPIAddress);
+        dialog.setReverseAPIPort(m_settings.m_reverseAPIPort);
+        dialog.setReverseAPIDeviceIndex(m_settings.m_reverseAPIDeviceIndex);
+        dialog.setTitle(m_settings.m_title);
+        dialog.setDefaultTitle(getDefaultTitle());
 
-    dialog.move(p);
-    dialog.exec();
+        dialog.move(p);
+        new DialogPositioner(&dialog, false);
+        dialog.exec();
 
-    m_settings.m_useReverseAPI = dialog.useReverseAPI();
-    m_settings.m_reverseAPIAddress = dialog.getReverseAPIAddress();
-    m_settings.m_reverseAPIPort = dialog.getReverseAPIPort();
-    m_settings.m_reverseAPIDeviceIndex = dialog.getReverseAPIDeviceIndex();
+        if (dialog.result() == QDialog::Accepted)
+        {
+            m_settings.m_title = dialog.getTitle();
+            setTitle(m_settings.m_title);
+            getDeviceUISet()->m_mainSpectrumGUI->setTitle(m_settings.m_title);
+            m_settings.m_useReverseAPI = dialog.useReverseAPI();
+            m_settings.m_reverseAPIAddress = dialog.getReverseAPIAddress();
+            m_settings.m_reverseAPIPort = dialog.getReverseAPIPort();
+            m_settings.m_reverseAPIDeviceIndex = dialog.getReverseAPIDeviceIndex();
+            m_settingsKeys.append("title");
+            m_settingsKeys.append("useReverseAPI");
+            m_settingsKeys.append("reverseAPIAddress");
+            m_settingsKeys.append("reverseAPIPort");
+            m_settingsKeys.append("reverseAPIDeviceIndex");
 
-    sendSettings();
+            sendSettings();
+        }
+    }
+
+    resetContextMenuType();
+}
+
+void TestSourceGui::makeUIConnections()
+{
+    QObject::connect(ui->startStop, &ButtonSwitch::toggled, this, &TestSourceGui::on_startStop_toggled);
+    QObject::connect(ui->centerFrequency, &ValueDial::changed, this, &TestSourceGui::on_centerFrequency_changed);
+    QObject::connect(ui->autoCorr, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &TestSourceGui::on_autoCorr_currentIndexChanged);
+    QObject::connect(ui->frequencyShift, &ValueDialZ::changed, this, &TestSourceGui::on_frequencyShift_changed);
+    QObject::connect(ui->decimation, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &TestSourceGui::on_decimation_currentIndexChanged);
+    QObject::connect(ui->fcPos, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &TestSourceGui::on_fcPos_currentIndexChanged);
+    QObject::connect(ui->sampleRate, &ValueDial::changed, this, &TestSourceGui::on_sampleRate_changed);
+    QObject::connect(ui->sampleSize, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &TestSourceGui::on_sampleSize_currentIndexChanged);
+    QObject::connect(ui->amplitudeCoarse, &QSlider::valueChanged, this, &TestSourceGui::on_amplitudeCoarse_valueChanged);
+    QObject::connect(ui->amplitudeFine, &QSlider::valueChanged, this, &TestSourceGui::on_amplitudeFine_valueChanged);
+    QObject::connect(ui->modulation, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &TestSourceGui::on_modulation_currentIndexChanged);
+    QObject::connect(ui->modulationFrequency, &QDial::valueChanged, this, &TestSourceGui::on_modulationFrequency_valueChanged);
+    QObject::connect(ui->amModulation, &QDial::valueChanged, this, &TestSourceGui::on_amModulation_valueChanged);
+    QObject::connect(ui->fmDeviation, &QDial::valueChanged, this, &TestSourceGui::on_fmDeviation_valueChanged);
+    QObject::connect(ui->dcBias, &QSlider::valueChanged, this, &TestSourceGui::on_dcBias_valueChanged);
+    QObject::connect(ui->iBias, &QSlider::valueChanged, this, &TestSourceGui::on_iBias_valueChanged);
+    QObject::connect(ui->qBias, &QSlider::valueChanged, this, &TestSourceGui::on_qBias_valueChanged);
+    QObject::connect(ui->phaseImbalance, &QSlider::valueChanged, this, &TestSourceGui::on_phaseImbalance_valueChanged);
+    QObject::connect(ui->period, QOverload<int>::of(&QSpinBox::valueChanged), this, &TestSourceGui::on_period_valueChanged);
+    QObject::connect(ui->dutyCycle, &QDial::valueChanged, this, &TestSourceGui::on_dutyCycle_valueChanged);
 }

@@ -1,55 +1,78 @@
 project(udpsource)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(udpsource_SOURCES
-	udpsource.cpp
-	udpsourcegui.cpp
+    udpsource.cpp
+    udpsourcebaseband.cpp
+    udpsourcesource.cpp
 	udpsourceplugin.cpp
 	udpsourceudphandler.cpp
 	udpsourcemsg.cpp
-	udpsourcesettings.cpp
+    udpsourcesettings.cpp
+    udpsourcewebapiadapter.cpp
 )
 
 set(udpsource_HEADERS
 	udpsource.h
-	udpsourcegui.h
+    udpsourcebaseband.h
+    udpsourcesource.h
 	udpsourceplugin.h
 	udpsourceudphandler.h
 	udpsourcemsg.h
-	udpsourcesettings.h
-)
-
-set(udpsource_FORMS
-	udpsourcegui.ui
+    udpsourcesettings.h
+    udpsourcewebapiadapter.h
 )
 
 include_directories(
-	.
-	${CMAKE_CURRENT_BINARY_DIR}
 	${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
 )
 
-#include(${QT_USE_FILE})
-add_definitions(${QT_DEFINITIONS})
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
+if(NOT SERVER_MODE)
+    set(udpsource_SOURCES
+        ${udpsource_SOURCES}
+        udpsourcegui.cpp
 
-qt5_wrap_ui(udpsource_FORMS_HEADERS ${udpsource_FORMS})
+        udpsourcegui.ui
+    )
+    set(udpsource_HEADERS
+        ${udpsource_HEADERS}
+        udpsourcegui.h
+    )
 
-add_library(udpsource SHARED
-	${udpsource_SOURCES}
-	${udpsource_HEADERS_MOC}
-	${udpsource_FORMS_HEADERS}
-)
+    set(TARGET_NAME ${PLUGINS_PREFIX}udpsource)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}udpsourcesrv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
 
-target_link_libraries(udpsource
-	${QT_LIBRARIES}
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${udpsource_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME UDPSourcePlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${udpsource_SOURCES})
+endif()
+
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+target_link_libraries(${TARGET_NAME} PRIVATE
+        Qt::Core
+        ${TARGET_LIB}
+        Qt::Network
 	sdrbase
-	sdrgui
-	swagger
+	${TARGET_LIB_GUI}
+        swagger
 )
 
-target_link_libraries(udpsource Qt5::Core Qt5::Widgets Qt5::Network)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-install(TARGETS udpsource DESTINATION lib/plugins/channeltx)
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

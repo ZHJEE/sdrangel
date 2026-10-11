@@ -1,50 +1,73 @@
 project(modwfm)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(modwfm_SOURCES
-	wfmmod.cpp
-	wfmmodgui.cpp
+    wfmmod.cpp
+    wfmmodbaseband.cpp
+    wfmmodsource.cpp
 	wfmmodplugin.cpp
-	wfmmodsettings.cpp
+    wfmmodsettings.cpp
+    wfmmodwebapiadapter.cpp
 )
 
 set(modwfm_HEADERS
 	wfmmod.h
-	wfmmodgui.h
+    wfmmodbaseband.h
+    wfmmodsource.h
 	wfmmodplugin.h
-	wfmmodsettings.h
-)
-
-set(modwfm_FORMS
-	wfmmodgui.ui
+    wfmmodsettings.h
+    wfmmodwebapiadapter.h
 )
 
 include_directories(
-	.
-	${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client	
+        ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
 )
 
-add_definitions(${QT_DEFINITIONS})
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
+if(NOT SERVER_MODE)
+    set(modwfm_SOURCES
+        ${modwfm_SOURCES}
+        wfmmodgui.cpp
 
-qt5_wrap_ui(modwfm_FORMS_HEADERS ${modwfm_FORMS})
+        wfmmodgui.ui
+    )
+    set(modwfm_HEADERS
+        ${modwfm_HEADERS}
+        wfmmodgui.h
+    )
 
-add_library(modwfm SHARED
-	${modwfm_SOURCES}
-	${modwfm_HEADERS_MOC}
-	${modwfm_FORMS_HEADERS}
-)
+    set(TARGET_NAME ${PLUGINS_PREFIX}modwfm)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}modwfmsrv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
 
-target_link_libraries(modwfm
-	${QT_LIBRARIES}
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${modwfm_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME WFMModPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${modwfm_SOURCES})
+endif()
+
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+target_link_libraries(${TARGET_NAME} PRIVATE
+        Qt::Core
+        ${TARGET_LIB}
 	sdrbase
-	sdrgui
-	swagger
+	${TARGET_LIB_GUI}
+        swagger
 )
 
-target_link_libraries(modwfm Qt5::Core Qt5::Widgets)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-install(TARGETS modwfm DESTINATION lib/plugins/channeltx)
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

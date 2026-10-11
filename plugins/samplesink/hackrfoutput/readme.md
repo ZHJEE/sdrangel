@@ -6,6 +6,8 @@ This output sample sink plugin sends its samples to a [HackRF device](https://gr
 
 <h2>Interface</h2>
 
+The top and bottom bars of the device window are described [here](../../../sdrgui/device/readme.md)
+
 ![HackRF output plugin GUI](../../../doc/img/HackRFOutput_plugin.png)
 
 <h3>1: Start/Stop</h3>
@@ -36,7 +38,7 @@ This is the center frequency of transmission in kHz.
 
 <h3>4: Local Oscillator correction</h3>
 
-Use this slider to adjust LO correction in ppm. It can be varied from -10.0 to 10.0 in 0.1 steps and is applied in software.
+Use this slider to adjust LO correction in ppm. It can be varied from -100.0 to 100.0 in 0.1 steps and is applied in software.
 
 <h3>5: Rx filter bandwidth</h3>
 
@@ -72,7 +74,7 @@ The limits are adjusted automatically. In baseband input mode the limits are dri
 
 Use the wheels to adjust the sample rate. Left click on a digit sets the cursor position at this digit. Right click on a digit sets all digits on the right to zero. This effectively floors value at the digit position. Wheels are moved with the mousewheel while pointing at the wheel or by selecting the wheel with the left mouse click and using the keyboard arrows. Pressing shift simultaneously moves digit by 5 and pressing control moves it by 2.
 
-<h3>9: Baseband center frequency position relative the the HackRF Tx center frequency</h3>
+<h3>9: Baseband center frequency position relative to the HackRF Tx center frequency</h3>
 
   - **Cen**: the decimation operation takes place around the HackRF Tx center frequency Fs
   - **Inf**: the decimation operation takes place around Fs - Fc.

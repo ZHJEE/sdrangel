@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018 F4EXB                                                      //
-// written by Edouard Griffiths                                                  //
+// Copyright (C) 2018-2020 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
+// Copyright (C) 2019 Davide Gerhard <rainbow@irh.it>                            //
 //                                                                               //
 // Integer half-band FIR based interpolator and decimator                        //
 // This is the even/odd double buffer variant. Really useful only when SIMD is   //
@@ -27,9 +27,8 @@
 #include <cstdlib>
 #include "dsp/dsptypes.h"
 #include "dsp/hbfiltertraits.h"
-#include "export.h"
 
-template<uint32_t HBFilterOrder>
+template<uint32_t HBFilterOrder, bool IQOrder>
 class IntHalfbandFilterEOF {
 public:
     IntHalfbandFilterEOF();
@@ -152,17 +151,17 @@ protected:
     {
         if ((m_ptr % 2) == 0)
         {
-            m_even[0][m_ptr/2] = x;
-            m_even[1][m_ptr/2] = y;
-            m_even[0][m_ptr/2 + m_size] = x;
-            m_even[1][m_ptr/2 + m_size] = y;
+            m_even[0][m_ptr/2] = IQOrder ? x : y;
+            m_even[1][m_ptr/2] = IQOrder ? y : x;
+            m_even[0][m_ptr/2 + m_size] = IQOrder ? x : y;
+            m_even[1][m_ptr/2 + m_size] = IQOrder ? y : x;
         }
         else
         {
-            m_odd[0][m_ptr/2] = x;
-            m_odd[1][m_ptr/2] = y;
-            m_odd[0][m_ptr/2 + m_size] = x;
-            m_odd[1][m_ptr/2 + m_size] = y;
+            m_odd[0][m_ptr/2] = IQOrder ? x : y;
+            m_odd[1][m_ptr/2] = IQOrder ? y : x;
+            m_odd[0][m_ptr/2 + m_size] = IQOrder ? x : y;
+            m_odd[1][m_ptr/2 + m_size] = IQOrder ? y : x;
         }
     }
 
@@ -176,15 +175,6 @@ protected:
         float iAcc = 0;
         float qAcc = 0;
 
-//#if defined(USE_SSE4_1) && !defined(NO_DSP_SIMD)
-//        IntHalfbandFilterEO1Intrisics<HBFilterOrder>::work(
-//                m_ptr,
-//                m_even,
-//                m_odd,
-//                iAcc,
-//                qAcc
-//        );
-//#else
         int a = m_ptr/2 + m_size; // tip pointer
         int b = m_ptr/2 + 1; // tail pointer
 
@@ -204,7 +194,7 @@ protected:
             a -= 1;
             b += 1;
         }
-//#endif
+
         if ((m_ptr % 2) == 0)
         {
             iAcc += m_odd[0][m_ptr/2 + m_size/2] * 0.5f;
@@ -242,8 +232,8 @@ protected:
     }
 };
 
-template<uint32_t HBFilterOrder>
-IntHalfbandFilterEOF<HBFilterOrder>::IntHalfbandFilterEOF()
+template<uint32_t HBFilterOrder, bool IQOrder>
+IntHalfbandFilterEOF<HBFilterOrder, IQOrder>::IntHalfbandFilterEOF()
 {
     m_size = HBFIRFilterTraits<HBFilterOrder>::hbOrder/2;
 

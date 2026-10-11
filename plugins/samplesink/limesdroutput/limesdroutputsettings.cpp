@@ -1,5 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2017 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2019, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>    //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -26,6 +28,7 @@ LimeSDROutputSettings::LimeSDROutputSettings()
 
 void LimeSDROutputSettings::resetToDefaults()
 {
+    m_title = "LimeSDR";
     m_centerFrequency = 435000*1000;
     m_devSampleRate = 5000000;
     m_log2HardInterp = 3;
@@ -73,6 +76,7 @@ QByteArray LimeSDROutputSettings::serialize() const
     s.writeString(21, m_reverseAPIAddress);
     s.writeU32(22, m_reverseAPIPort);
     s.writeU32(23, m_reverseAPIDeviceIndex);
+    s.writeString(24, m_title);
 
     return s.final();
 }
@@ -123,6 +127,7 @@ bool LimeSDROutputSettings::deserialize(const QByteArray& data)
 
         d.readU32(23, &uintval, 0);
         m_reverseAPIDeviceIndex = uintval > 99 ? 99 : uintval;
+        d.readString(24, &m_title, "LimeSDR");
 
         return true;
     }
@@ -131,7 +136,148 @@ bool LimeSDROutputSettings::deserialize(const QByteArray& data)
         resetToDefaults();
         return false;
     }
-
 }
 
+void LimeSDROutputSettings::applySettings(const QStringList& settingsKeys, const LimeSDROutputSettings& settings)
+{
+    if (settingsKeys.contains("title")) {
+        m_title = settings.m_title;
+    }
+    if (settingsKeys.contains("centerFrequency")) {
+        m_centerFrequency = settings.m_centerFrequency;
+    }
+    if (settingsKeys.contains("devSampleRate")) {
+        m_devSampleRate = settings.m_devSampleRate;
+    }
+    if (settingsKeys.contains("log2HardInterp")) {
+        m_log2HardInterp = settings.m_log2HardInterp;
+    }
+    if (settingsKeys.contains("log2SoftInterp")) {
+        m_log2SoftInterp = settings.m_log2SoftInterp;
+    }
+    if (settingsKeys.contains("lpfBW")) {
+        m_lpfBW = settings.m_lpfBW;
+    }
+    if (settingsKeys.contains("lpfFIREnable")) {
+        m_lpfFIREnable = settings.m_lpfFIREnable;
+    }
+    if (settingsKeys.contains("lpfFIRBW")) {
+        m_lpfFIRBW = settings.m_lpfFIRBW;
+    }
+    if (settingsKeys.contains("gain")) {
+        m_gain = settings.m_gain;
+    }
+    if (settingsKeys.contains("ncoEnable")) {
+        m_ncoEnable = settings.m_ncoEnable;
+    }
+    if (settingsKeys.contains("ncoFrequency")) {
+        m_ncoFrequency = settings.m_ncoFrequency;
+    }
+    if (settingsKeys.contains("antennaPath")) {
+        m_antennaPath = settings.m_antennaPath;
+    }
+    if (settingsKeys.contains("extClock")) {
+        m_extClock = settings.m_extClock;
+    }
+    if (settingsKeys.contains("extClockFreq")) {
+        m_extClockFreq = settings.m_extClockFreq;
+    }
+    if (settingsKeys.contains("transverterMode")) {
+        m_transverterMode = settings.m_transverterMode;
+    }
+    if (settingsKeys.contains("transverterDeltaFrequency")) {
+        m_transverterDeltaFrequency = settings.m_transverterDeltaFrequency;
+    }
+    if (settingsKeys.contains("gpioDir")) {
+        m_gpioDir = settings.m_gpioDir;
+    }
+    if (settingsKeys.contains("gpioPins")) {
+        m_gpioPins = settings.m_gpioPins;
+    }
+    if (settingsKeys.contains("useReverseAPI")) {
+        m_useReverseAPI = settings.m_useReverseAPI;
+    }
+    if (settingsKeys.contains("reverseAPIAddress")) {
+        m_reverseAPIAddress = settings.m_reverseAPIAddress;
+    }
+    if (settingsKeys.contains("reverseAPIPort")) {
+        m_reverseAPIPort = settings.m_reverseAPIPort;
+    }
+    if (settingsKeys.contains("reverseAPIDeviceIndex")) {
+        m_reverseAPIDeviceIndex = settings.m_reverseAPIDeviceIndex;
+    }
+}
 
+QString LimeSDROutputSettings::getDebugString(const QStringList& settingsKeys, bool force) const
+{
+    std::ostringstream ostr;
+
+    if (settingsKeys.contains("title") || force) {
+        ostr << " m_title: " << m_title.toStdString();
+    }
+    if (settingsKeys.contains("centerFrequency") || force) {
+        ostr << " m_centerFrequency: " << m_centerFrequency;
+    }
+    if (settingsKeys.contains("devSampleRate") || force) {
+        ostr << " m_devSampleRate: " << m_devSampleRate;
+    }
+    if (settingsKeys.contains("log2HardInterp") || force) {
+        ostr << " m_log2HardInterp: " << m_log2HardInterp;
+    }
+    if (settingsKeys.contains("log2SoftInterp") || force) {
+        ostr << " m_log2SoftInterp: " << m_log2SoftInterp;
+    }
+    if (settingsKeys.contains("lpfBW") || force) {
+        ostr << " m_lpfBW: " << m_lpfBW;
+    }
+    if (settingsKeys.contains("lpfFIREnable") || force) {
+        ostr << " m_lpfFIREnable: " << m_lpfFIREnable;
+    }
+    if (settingsKeys.contains("lpfFIRBW") || force) {
+        ostr << " m_lpfFIRBW: " << m_lpfFIRBW;
+    }
+    if (settingsKeys.contains("gain") || force) {
+        ostr << " m_gain: " << m_gain;
+    }
+    if (settingsKeys.contains("ncoEnable") || force) {
+        ostr << " m_ncoEnable: " << m_ncoEnable;
+    }
+    if (settingsKeys.contains("ncoFrequency") || force) {
+        ostr << " m_ncoFrequency: " << m_ncoFrequency;
+    }
+    if (settingsKeys.contains("antennaPath") || force) {
+        ostr << " m_antennaPath: " << m_antennaPath;
+    }
+    if (settingsKeys.contains("extClock") || force) {
+        ostr << " m_extClock: " << m_extClock;
+    }
+    if (settingsKeys.contains("extClockFreq") || force) {
+        ostr << " m_extClockFreq: " << m_extClockFreq;
+    }
+    if (settingsKeys.contains("transverterMode") || force) {
+        ostr << " m_transverterMode: " << m_transverterMode;
+    }
+    if (settingsKeys.contains("transverterDeltaFrequency") || force) {
+        ostr << " m_transverterDeltaFrequency: " << m_transverterDeltaFrequency;
+    }
+    if (settingsKeys.contains("gpioDir") || force) {
+        ostr << " m_gpioDir: " << m_gpioDir;
+    }
+    if (settingsKeys.contains("gpioPins") || force) {
+        ostr << " m_gpioPins: " << m_gpioPins;
+    }
+    if (settingsKeys.contains("useReverseAPI") || force) {
+        ostr << " m_useReverseAPI: " << m_useReverseAPI;
+    }
+    if (settingsKeys.contains("reverseAPIAddress") || force) {
+        ostr << " m_reverseAPIAddress: " << m_reverseAPIAddress.toStdString();
+    }
+    if (settingsKeys.contains("reverseAPIPort") || force) {
+        ostr << " m_reverseAPIPort: " << m_reverseAPIPort;
+    }
+    if (settingsKeys.contains("reverseAPIDeviceIndex") || force) {
+        ostr << " m_reverseAPIDeviceIndex: " << m_reverseAPIDeviceIndex;
+    }
+
+    return QString(ostr.str().c_str());
+}

@@ -1,6 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2015 F4EXB                                                      //
-// written by Edouard Griffiths                                                  //
+// Copyright (C) 2015-2016, 2019, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com> //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -57,6 +56,7 @@ public:
 	bool           m_g0_af_updated;
 	unsigned int   m_g0_count;
 	char           m_g0_program_service_name[8+1];
+	char           m_g0_program_service_name_complete[8+1]; //!< Last name for which all four segments were received
 	unsigned char  m_g0_psn_bitmap;
 	bool           m_g0_traffic_announcement;
 	bool           m_g0_music_speech;
@@ -80,6 +80,7 @@ public:
 	bool           m_g2_updated;
 	unsigned int   m_g2_count;
 	char           m_g2_radiotext[64+1];
+	bool           m_radiotext_AB_flag;
 
 	// G3 data
 	bool           m_g3_updated;
@@ -160,7 +161,6 @@ public:
 	static const unsigned int offset_word[5];
 	static const unsigned int syndrome[5];
 	static const char * const offset_name[];
-	static const std::string pty_table[32];
 	static const std::string pi_country_codes[15][5];
 	static const std::string coverage_area_codes[16];
 	static const std::string rds_group_acronyms[16];
@@ -193,7 +193,6 @@ private:
 	unsigned char  pi_country_identification;
 	unsigned char  pi_program_reference_number;
 
-	bool           radiotext_AB_flag;
 	bool           debug;
 	bool           log;
 

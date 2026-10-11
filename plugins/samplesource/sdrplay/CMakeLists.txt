@@ -1,73 +1,77 @@
 project(sdrplay)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(sdrplay_SOURCES
-    sdrplaygui.cpp
     sdrplayinput.cpp
     sdrplayplugin.cpp
     sdrplaysettings.cpp
+    sdrplaywebapiadapter.cpp
     sdrplaythread.cpp
 )
 
 set(sdrplay_HEADERS
-    sdrplaygui.h
     sdrplayinput.h
     sdrplayplugin.h
     sdrplaysettings.h
+    sdrplaywebapiadapter.h
     sdrplaythread.h
 )
 
-set(sdrplay_FORMS
-    sdrplaygui.ui
-)
-
-if (BUILD_DEBIAN)
 include_directories(
-    .
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
-    ${LIBMIRISDRSRC}/include
-    ${LIBMIRISDRSRC}/src
-)
-else (BUILD_DEBIAN)
-include_directories(
-    .
-    ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
     ${LIBMIRISDR_INCLUDE_DIR}
 )
-endif (BUILD_DEBIAN)
 
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
+if(NOT SERVER_MODE)
+    set(sdrplay_SOURCES
+        ${sdrplay_SOURCES}
+        sdrplaygui.cpp
 
-qt5_wrap_ui(sdrplay_FORMS_HEADERS ${sdrplay_FORMS})
+        sdrplaygui.ui
+    )
+    set(sdrplay_HEADERS
+        ${sdrplay_HEADERS}
+        sdrplaygui.h
+    )
 
-add_library(inputsdrplay SHARED
-    ${sdrplay_SOURCES}
-    ${sdrplay_HEADERS_MOC}
-    ${sdrplay_FORMS_HEADERS}
+    set(TARGET_NAME ${PLUGINS_PREFIX}inputsdrplay)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}inputsdrplaysrv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
+
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${sdrplay_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME SDRPlayPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${sdrplay_SOURCES})
+endif()
+
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+if(LIBMIRISDR_EXTERNAL)
+    add_dependencies(${TARGET_NAME} libmirisdr)
+endif(LIBMIRISDR_EXTERNAL)
+
+target_link_libraries(${TARGET_NAME} PRIVATE
+        Qt::Core
+        ${TARGET_LIB}
+	sdrbase
+	${TARGET_LIB_GUI}
+        swagger
+        ${LIBMIRISDR_LIBRARIES}
 )
 
-if (BUILD_DEBIAN)
-target_link_libraries(inputsdrplay
-    ${QT_LIBRARIES}
-    mirisdr
-    sdrbase
-    sdrgui
-    swagger
-)
-else (BUILD_DEBIAN)
-target_link_libraries(inputsdrplay
-    ${QT_LIBRARIES}
-    ${LIBMIRISDR_LIBRARIES}
-    sdrbase
-    sdrgui
-    swagger
-)
-endif (BUILD_DEBIAN)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-target_link_libraries(inputsdrplay Qt5::Core Qt5::Widgets)
-
-install(TARGETS inputsdrplay DESTINATION lib/plugins/samplesource)
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

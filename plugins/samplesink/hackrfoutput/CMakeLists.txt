@@ -1,81 +1,75 @@
 project(hackrfoutput)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(hackrfoutput_SOURCES
-    hackrfoutputgui.cpp
     hackrfoutput.cpp
     hackrfoutputplugin.cpp
     hackrfoutputsettings.cpp
+    hackrfoutputwebapiadapter.cpp
     hackrfoutputthread.cpp
 )
 
 set(hackrfoutput_HEADERS
-    hackrfoutputgui.h
     hackrfoutput.h
     hackrfoutputplugin.h
     hackrfoutputsettings.h
+    hackrfoutputwebapiadapter.h
     hackrfoutputthread.h
 )
 
-set(hackrfoutput_FORMS
-    hackrfoutputgui.ui
-)
-
-if (BUILD_DEBIAN)
 include_directories(
-        .
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client    
-    ${CMAKE_SOURCE_DIR}/devices    
-    ${LIBHACKRFSRC}
-    ${LIBHACKRFSRC}/libhackrf/src
-)
-else (BUILD_DEBIAN)
-include_directories(
-        .
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client    
-    ${CMAKE_SOURCE_DIR}/devices    
+    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
+    ${CMAKE_SOURCE_DIR}/devices
     ${LIBHACKRF_INCLUDE_DIR}
 )
-endif (BUILD_DEBIAN)
 
-#include(${QT_USE_FILE})
-#add_definitions(${QT_DEFINITIONS})
-add_definitions("${QT_DEFINITIONS} -DLIBHACKRF_DYN_RATES")
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
+if(NOT SERVER_MODE)
+    set(hackrfoutput_SOURCES
+        ${hackrfoutput_SOURCES}
+        hackrfoutputgui.cpp
 
-#qt4_wrap_cpp(hackrfoutput_HEADERS_MOC ${hackrfoutput_HEADERS})
-qt5_wrap_ui(hackrfoutput_FORMS_HEADERS ${hackrfoutput_FORMS})
+        hackrfoutputgui.ui
+    )
+    set(hackrfoutput_HEADERS
+        ${hackrfoutput_HEADERS}
+        hackrfoutputgui.h
+    )
 
-add_library(outputhackrf SHARED
-    ${hackrfoutput_SOURCES}
-    ${hackrfoutput_HEADERS_MOC}
-    ${hackrfoutput_FORMS_HEADERS}
+    set(TARGET_NAME ${PLUGINS_PREFIX}outputhackrf)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}outputhackrfsrv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
+
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${hackrfoutput_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME HackRFOutputPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${hackrfoutput_SOURCES})
+endif()
+
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+target_link_libraries(${TARGET_NAME} PRIVATE
+        Qt::Core
+        ${TARGET_LIB}
+	sdrbase
+	${TARGET_LIB_GUI}
+        swagger
+        ${LIBHACKRF_LIBRARIES}
+        hackrfdevice
 )
 
-if (BUILD_DEBIAN)
-target_link_libraries(outputhackrf
-    ${QT_LIBRARIES}
-    hackrf
-    sdrbase
-    sdrgui
-    swagger
-    hackrfdevice
-)
-else (BUILD_DEBIAN)
-target_link_libraries(outputhackrf
-    ${QT_LIBRARIES}
-    ${LIBHACKRF_LIBRARIES}
-    sdrbase
-    sdrgui
-    swagger
-    hackrfdevice
-)
-endif (BUILD_DEBIAN)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-target_link_libraries(outputhackrf Qt5::Core Qt5::Widgets)
-
-install(TARGETS outputhackrf DESTINATION lib/plugins/samplesink)
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

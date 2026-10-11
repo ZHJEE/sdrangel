@@ -38,7 +38,6 @@
 
 #define RTPKEYHASHTABLE_H
 
-#include "rtpconfig.h"
 #include "rtperrors.h"
 
 namespace qrtplib
@@ -125,7 +124,8 @@ private:
 };
 
 template<class Key, class Element, class GetIndex, int hashsize>
-inline RTPKeyHashTable<Key, Element, GetIndex, hashsize>::RTPKeyHashTable()
+inline RTPKeyHashTable<Key, Element, GetIndex, hashsize>::RTPKeyHashTable() :
+    curhashelem(0)
 {
     for (int i = 0; i < hashsize; i++)
         table[i] = 0;

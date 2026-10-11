@@ -2,11 +2,15 @@ AMDemodSettings:
   description: AMDemod
   properties:
     inputFrequencyOffset:
-      description: channel center frequency shift from baseband center in Hz    
+      description: channel center frequency shift from baseband center in Hz
       type: integer
       format: int64
     rfBandwidth:
       description: channel RF bandwidth in Hz (floors to next 100 Hz)
+      type: number
+      format: float
+    afBandwidth:
+      description: AF bandwidth in Hz
       type: number
       format: float
     squelch:
@@ -16,34 +20,72 @@ AMDemodSettings:
     volume:
       type: number
       format: float
+      description: "Audio volume multiplier."
     audioMute:
       type: integer
+      description: "Mute audio output (1 muted, 0 unmuted)."
+      minimum: 0
+      maximum: 1
     bandpassEnable:
       description: use bandpass filter (1 for yes, 0 for no)
       type: integer
+      minimum: 0
+      maximum: 1
     rgbColor:
       type: integer
+      description: "Display color encoded as an RGB integer."
     title:
       type: string
+      description: "User-visible title."
     audioDeviceName:
       type: string
+      description: "Name of the audio device to use."
     pll:
       description: PLL active (for synchronous AM)
       type: integer
     syncAMOperation:
       description: Synchronous AM sidebands mode (DSB, USB, LSB)
       type: integer
+    frequencyMode:
+      description: (0 for Offset, 1 for MW, 2 for 25k, 3 for 8.33k)
+      type: integer
+      minimum: 0
+      maximum: 3
+    frequency:
+      description: Channel center frequency
+      type: integer
+      format: int64
+    snap:
+      description: Snap channel marker to channel center frequencies
+      type: integer
+    streamIndex:
+      description: MIMO channel. Not relevant when connected to SI (single Rx).
+      type: integer
     useReverseAPI:
       description: Synchronize with reverse API (1 for yes, 0 for no)
       type: integer
+      minimum: 0
+      maximum: 1
     reverseAPIAddress:
       type: string
+      description: "IPv4 address or host name of the reverse API peer."
     reverseAPIPort:
       type: integer
+      description: "TCP port of the reverse API peer."
+      minimum: 1
+      maximum: 65535
     reverseAPIDeviceIndex:
-      type: integer      
+      type: integer
+      description: "Device-set index used by the reverse API peer."
     reverseAPIChannelIndex:
-      type: integer      
+      type: integer
+      description: "Channel index used by the reverse API peer."
+    channelMarker:
+      $ref: "/doc/swagger/include/ChannelMarker.yaml#/ChannelMarker"
+      description: "Channel-marker display configuration."
+    rollupState:
+      $ref: "/doc/swagger/include/RollupState.yaml#/RollupState"
+      description: "Saved expanded or collapsed state of the GUI sections."
 
 AMDemodReport:
   description: AMDemod
@@ -57,6 +99,7 @@ AMDemodReport:
       type: integer
     audioSampleRate:
       type: integer
+      description: "Audio sample rate in samples per second."
     channelSampleRate:
       type: integer
-      
+      description: "Effective sample rate delivered to the channel in samples per second."

@@ -1,6 +1,10 @@
 ///////////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
 // written by Christian Daniel                                                   //
+// Copyright (C) 2014 John Greb <hexameron@spam.no>                              //
+// Copyright (C) 2015-2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
+// Copyright (C) 2019 Stefan Biereigel <stefan@biereigel.de>                     //
+// Copyright (C) 2021-2023 Jon Beniston, M7RCE <jon@beniston.com>                //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -22,252 +26,288 @@
 #include <QMainWindow>
 #include <QTimer>
 #include <QList>
+#include <QProcess>
+#include <QStateMachine>
+#include <QState>
+#include <QFinalState>
+#include <QSignalTransition>
+#include <QProgressDialog>
+#include <QPointer>
 
 #include "settings/mainsettings.h"
 #include "util/message.h"
 #include "util/messagequeue.h"
 #include "export.h"
 #include "mainparser.h"
+#include "maincore.h"
 
 class QLabel;
 class QTreeWidgetItem;
 class QDir;
-class SamplingDeviceControl;
+class QToolButton;
 
 class DSPEngine;
 class DSPDeviceSourceEngine;
 class DSPDeviceSinkEngine;
+class DSPDeviceMIMOEngine;
 class Indicator;
-class SpectrumVis;
-class GLSpectrum;
 class GLSpectrumGUI;
-class ChannelWindow;
+class MainSpectrumGUI;
 class PluginAPI;
-class PluginInstanceGUI;
+class ChannelGUI;
 class ChannelMarker;
 class PluginManager;
 class DeviceAPI;
 class DeviceUISet;
+class Feature;
+class FeatureUISet;
 class PluginInterface;
 class QWidget;
 class WebAPIRequestMapper;
 class WebAPIServer;
-class WebAPIAdapterGUI;
+class WebAPIAdapter;
 class Preset;
 class Command;
+class FeatureSetPreset;
 class CommandKeyReceiver;
+class ConfigurationsDialog;
+class ProfileDialog;
+class SerializableInterface;
+class SDRangelSplash;
 
-namespace qtwebapp {
-    class LoggerWithFile;
-}
+class QMenuBar;
+class QMenu;
+class QMdiSubWindow;
+class Workspace;
+class MainWindow;
 
-namespace Ui {
-	class MainWindow;
-}
+// Would preferablly have these FSM classes as nested classes of MainWindow
+// However, as they inherit from QObject, they should have Q_OBJECT macro which isn't supported for nested classes
+// Instead we have to declare them as friend classes to MainWindow
+
+class MainWindowFSM : public QStateMachine {
+    Q_OBJECT
+
+public:
+
+    MainWindowFSM(MainWindow *mainWindow, QObject *parent=nullptr);
+
+protected:
+
+    void createStates(int states); // number of states to create, including final state
+
+    MainWindow *m_mainWindow;
+    QList<QState *> m_states;
+    QFinalState *m_finalState;
+
+};
+
+class AddSampleSourceFSM : public MainWindowFSM {
+    Q_OBJECT
+
+public:
+
+    AddSampleSourceFSM(MainWindow *mainWindow, Workspace *deviceWorkspace, Workspace *spectrumWorkspace, int deviceIndex, bool loadDefaults, QObject *parent=nullptr);
+
+private:
+
+    Workspace *m_deviceWorkspace;
+    Workspace *m_spectrumWorkspace;
+    int m_deviceIndex;
+    bool m_loadDefaults;
+
+    int m_deviceSetIndex;
+    DeviceAPI *m_deviceAPI;
+    DeviceUISet *m_deviceUISet;
+
+    DSPDeviceSourceEngine *m_dspDeviceSourceEngine;
+
+    void addEngine();
+    void addDevice();
+    void addDeviceUI();
+};
+
+class AddSampleSinkFSM : public MainWindowFSM {
+    Q_OBJECT
+
+public:
+
+    AddSampleSinkFSM(MainWindow *mainWindow, Workspace *deviceWorkspace, Workspace *spectrumWorkspace, int deviceIndex, bool loadDefaults, QObject *parent=nullptr);
+
+private:
+
+    Workspace *m_deviceWorkspace;
+    Workspace *m_spectrumWorkspace;
+    int m_deviceIndex;
+    bool m_loadDefaults;
+
+    int m_deviceSetIndex;
+    DeviceAPI *m_deviceAPI;
+    DeviceUISet *m_deviceUISet;
+
+    DSPDeviceSinkEngine *m_dspDeviceSinkEngine;
+
+    void addEngine();
+    void addDevice();
+    void addDeviceUI();
+};
+
+class AddSampleMIMOFSM : public MainWindowFSM {
+    Q_OBJECT
+
+public:
+
+    AddSampleMIMOFSM(MainWindow *mainWindow, Workspace *deviceWorkspace, Workspace *spectrumWorkspace, int deviceIndex, bool loadDefaults, QObject *parent=nullptr);
+
+private:
+
+    Workspace *m_deviceWorkspace;
+    Workspace *m_spectrumWorkspace;
+    int m_deviceIndex;
+    bool m_loadDefaults;
+
+    int m_deviceSetIndex;
+    DeviceAPI *m_deviceAPI;
+    DeviceUISet *m_deviceUISet;
+
+    DSPDeviceMIMOEngine *m_dspDeviceMIMOEngine;
+
+    void addEngine();
+    void addDevice();
+    void addDeviceUI();
+};
+
+class RemoveDeviceSetFSM : public MainWindowFSM {
+    Q_OBJECT
+
+public:
+    RemoveDeviceSetFSM(MainWindow *mainWindow, int deviceSetIndex, QObject *parent=nullptr);
+
+private:
+    int m_deviceSetIndex;
+    DeviceUISet *m_deviceUISet;
+    DSPDeviceSourceEngine *m_deviceSourceEngine;
+    DSPDeviceSinkEngine *m_deviceSinkEngine;
+    DSPDeviceMIMOEngine *m_deviceMIMOEngine;
+    QSignalTransition *m_t1;
+    QSignalTransition *m_t2;
+
+    void stopAcquisition();
+    void removeSink();
+    void removeUI();
+    void stopEngine();
+    void removeDeviceSet();
+};
+
+class RemoveAllDeviceSetsFSM : public MainWindowFSM {
+    Q_OBJECT
+
+public:
+    RemoveAllDeviceSetsFSM(MainWindow *mainWindow, QObject *parent=nullptr);
+
+private:
+
+    void removeNext();
+
+};
+
+class RemoveAllWorkspacesFSM : public MainWindowFSM {
+    Q_OBJECT
+
+public:
+    RemoveAllWorkspacesFSM(MainWindow *mainWindow, QObject *parent=nullptr);
+
+private:
+
+    RemoveAllDeviceSetsFSM *m_removeAllDeviceSetsFSM;
+
+    void removeDeviceSets();
+    void removeWorkspaces();
+
+};
+
+class LoadConfigurationFSM : public MainWindowFSM {
+    Q_OBJECT
+
+public:
+    LoadConfigurationFSM(MainWindow *mainWindow, const Configuration *configuration, QProgressDialog *waitBox, QObject *parent=nullptr);
+
+private:
+
+    const Configuration *m_configuration;
+    bool m_overlayEnabledBeforeLoad;
+    // The dialog is created with WA_DeleteOnClose and this FSM outlives it,
+    // so a bare pointer can dangle between states. QPointer makes the null
+    // checks in the state handlers mean what they are written to mean.
+    QPointer<QProgressDialog> m_waitBox;
+
+    RemoveAllWorkspacesFSM *m_removeAllWorkspacesFSM;
+
+    void clearWorkspace();
+    void createWorkspaces();
+    void loadDeviceSets();
+    void loadDeviceSetSettings();
+    void loadFeatureSets();
+    void restoreGeometry();
+};
+
+class CloseFSM : public MainWindowFSM {
+    Q_OBJECT
+
+public:
+    CloseFSM(MainWindow *mainWindow, QObject *parent=nullptr);
+
+private:
+    void on_started();
+    void on_finished();
+};
+
+class InitFSM : public MainWindowFSM {
+    Q_OBJECT
+
+public:
+    InitFSM(MainWindow *mainWindow, SDRangelSplash *splash, bool loadDefault, bool showConfigs, QObject *parent=nullptr);
+
+private:
+    SDRangelSplash *m_splash;
+    bool m_showConfigs;
+    LoadConfigurationFSM *m_loadConfigurationFSM;
+
+    void loadDefaultConfiguration();
+    void showDefaultConfigurations();
+};
+
 
 class SDRGUI_API MainWindow : public QMainWindow {
 	Q_OBJECT
 
+    friend InitFSM;
+    friend AddSampleSourceFSM;
+    friend AddSampleSinkFSM;
+    friend AddSampleMIMOFSM;
+    friend LoadConfigurationFSM;
+    friend RemoveDeviceSetFSM;
+    friend RemoveAllDeviceSetsFSM;
+    friend RemoveAllWorkspacesFSM;
+    friend CloseFSM;
+
 public:
-	explicit MainWindow(qtwebapp::LoggerWithFile *logger, const MainParser& parser, QWidget* parent = 0);
-	~MainWindow();
+	explicit MainWindow(qtwebapp::LoggerWithFile *logger, const MainParser& parser, QWidget* parent = nullptr);
+	~MainWindow() final;
 	static MainWindow *getInstance() { return m_instance; } // Main Window is de facto a singleton so this just returns its reference
-
 	MessageQueue* getInputMessageQueue() { return &m_inputMessageQueue; }
+    const PluginManager *getPluginManager() const { return m_pluginManager; }
+    std::vector<DeviceUISet*>& getDeviceUISets() { return m_deviceUIs; }
+    void commandKeysConnect(const QObject *object, const char *slot);
+    void commandKeysDisconnect(const QObject *object, const char *slot) const;
+    int getNumberOfWorkspaces() const { return m_workspaces.size(); }
 
-	void addViewAction(QAction* action);
-
-    void addChannelRollup(int deviceTabIndex, QWidget* widget);
-	void setDeviceGUI(int deviceTabIndex, QWidget* gui, const QString& deviceDisplayName, bool sourceDevice = true);
-
-	const QTimer& getMasterTimer() const { return m_masterTimer; }
-	const MainSettings& getMainSettings() const { return m_settings; }
-
-	friend class WebAPIAdapterGUI;
+public slots:
+    void channelMove(ChannelGUI *gui, int wsIndexDestination);
+    void channelDuplicate(const ChannelGUI *gui);
+    void channelMoveToDeviceSet(ChannelGUI *gui, int dsIndexDestination);
 
 private:
-    class MsgLoadPreset : public Message {
-        MESSAGE_CLASS_DECLARATION
-
-    public:
-        const Preset *getPreset() const { return m_preset; }
-        int getDeviceSetIndex() const { return m_deviceSetIndex; }
-
-        static MsgLoadPreset* create(const Preset *preset, int deviceSetIndex)
-        {
-            return new MsgLoadPreset(preset, deviceSetIndex);
-        }
-
-    private:
-        const Preset *m_preset;
-        int m_deviceSetIndex;
-
-        MsgLoadPreset(const Preset *preset, int deviceSetIndex) :
-            Message(),
-            m_preset(preset),
-            m_deviceSetIndex(deviceSetIndex)
-        { }
-    };
-
-    class MsgSavePreset : public Message {
-        MESSAGE_CLASS_DECLARATION
-
-    public:
-        Preset *getPreset() const { return m_preset; }
-        int getDeviceSetIndex() const { return m_deviceSetIndex; }
-        bool isNewPreset() const { return m_newPreset; }
-
-        static MsgSavePreset* create(Preset *preset, int deviceSetIndex, bool newPreset)
-        {
-            return new MsgSavePreset(preset, deviceSetIndex, newPreset);
-        }
-
-    private:
-        Preset *m_preset;
-        int m_deviceSetIndex;
-        bool m_newPreset;
-
-        MsgSavePreset(Preset *preset, int deviceSetIndex, bool newPreset) :
-            Message(),
-            m_preset(preset),
-            m_deviceSetIndex(deviceSetIndex),
-            m_newPreset(newPreset)
-        { }
-    };
-
-    class MsgDeletePreset : public Message {
-        MESSAGE_CLASS_DECLARATION
-
-    public:
-        const Preset *getPreset() const { return m_preset; }
-
-        static MsgDeletePreset* create(const Preset *preset)
-        {
-            return new MsgDeletePreset(preset);
-        }
-
-    private:
-        const Preset *m_preset;
-
-        MsgDeletePreset(const Preset *preset) :
-            Message(),
-            m_preset(preset)
-        { }
-    };
-
-    class MsgAddDeviceSet : public Message {
-        MESSAGE_CLASS_DECLARATION
-
-    public:
-        int getDirection() const { return m_direction; }
-
-        static MsgAddDeviceSet* create(int direction)
-        {
-            return new MsgAddDeviceSet(direction);
-        }
-
-    private:
-        int m_direction;
-
-        MsgAddDeviceSet(int direction) :
-            Message(),
-            m_direction(direction)
-        { }
-    };
-
-    class MsgRemoveLastDeviceSet : public Message {
-        MESSAGE_CLASS_DECLARATION
-
-    public:
-        static MsgRemoveLastDeviceSet* create()
-        {
-            return new MsgRemoveLastDeviceSet();
-        }
-
-    private:
-        MsgRemoveLastDeviceSet() :
-            Message()
-        { }
-    };
-
-    class MsgSetDevice : public Message {
-        MESSAGE_CLASS_DECLARATION
-
-    public:
-        int getDeviceSetIndex() const { return m_deviceSetIndex; }
-        int getDeviceIndex() const { return m_deviceIndex; }
-        bool isTx() const { return m_tx; }
-
-        static MsgSetDevice* create(int deviceSetIndex, int deviceIndex, bool tx)
-        {
-            return new MsgSetDevice(deviceSetIndex, deviceIndex, tx);
-        }
-
-    private:
-        int m_deviceSetIndex;
-        int m_deviceIndex;
-        bool m_tx;
-
-        MsgSetDevice(int deviceSetIndex, int deviceIndex, bool tx) :
-            Message(),
-            m_deviceSetIndex(deviceSetIndex),
-            m_deviceIndex(deviceIndex),
-            m_tx(tx)
-        { }
-    };
-
-    class MsgAddChannel : public Message {
-        MESSAGE_CLASS_DECLARATION
-
-    public:
-        int getDeviceSetIndex() const { return m_deviceSetIndex; }
-        int getChannelRegistrationIndex() const { return m_channelRegistrationIndex; }
-        bool isTx() const { return m_tx; }
-
-        static MsgAddChannel* create(int deviceSetIndex, int channelRegistrationIndex, bool tx)
-        {
-            return new MsgAddChannel(deviceSetIndex, channelRegistrationIndex, tx);
-        }
-
-    private:
-        int m_deviceSetIndex;
-        int m_channelRegistrationIndex;
-        bool m_tx;
-
-        MsgAddChannel(int deviceSetIndex, int channelRegistrationIndex, bool tx) :
-            Message(),
-            m_deviceSetIndex(deviceSetIndex),
-            m_channelRegistrationIndex(channelRegistrationIndex),
-            m_tx(tx)
-        { }
-    };
-
-    class MsgDeleteChannel : public Message {
-        MESSAGE_CLASS_DECLARATION
-
-    public:
-        int getDeviceSetIndex() const { return m_deviceSetIndex; }
-        int getChannelIndex() const { return m_channelIndex; }
-        bool isTx() const { return m_tx; }
-
-        static MsgDeleteChannel* create(int deviceSetIndex, int channelIndex, bool tx)
-        {
-            return new MsgDeleteChannel(deviceSetIndex, channelIndex, tx);
-        }
-
-    private:
-        int m_deviceSetIndex;
-        int m_channelIndex;
-        bool m_tx;
-
-        MsgDeleteChannel(int deviceSetIndex, int channelIndex, bool tx) :
-            Message(),
-            m_deviceSetIndex(deviceSetIndex),
-            m_channelIndex(channelIndex),
-            m_tx(tx)
-        { }
-    };
-
     enum {
 		PGroup,
 		PItem
@@ -276,122 +316,193 @@ private:
 	struct DeviceWidgetTabData
 	{
 	    QWidget *gui;
-	    QString displayName;
-	    QString tabName;
+        QString displayName;
+        QString tabName;
 	};
 
-	class MsgDeviceSetFocus : public Message {
-        MESSAGE_CLASS_DECLARATION
-
-    public:
-        int getDeviceSetIndex() const { return m_deviceSetIndex; }
-
-        static MsgDeviceSetFocus* create(int deviceSetIndex)
-        {
-            return new MsgDeviceSetFocus(deviceSetIndex);
-        }
-
-    private:
-        int m_deviceSetIndex;
-
-        MsgDeviceSetFocus(int deviceSetIndex) :
-            Message(),
-            m_deviceSetIndex(deviceSetIndex)
-        { }
-    };
-
 	static MainWindow *m_instance;
-	Ui::MainWindow* ui;
+    QList<Workspace*> m_workspaces;
+    Workspace *m_currentWorkspace;
 	MessageQueue m_inputMessageQueue;
-	MainSettings m_settings;
+    MainCore *m_mainCore;
 	std::vector<DeviceUISet*> m_deviceUIs;
+    std::vector<FeatureUISet*> m_featureUIs;
 	QList<DeviceWidgetTabData> m_deviceWidgetTabs;
-	int m_masterTabIndex;
 
 	DSPEngine* m_dspEngine;
 	PluginManager* m_pluginManager;
 
-	QTimer m_masterTimer;
 	QTimer m_statusTimer;
+    QTimer m_connectionOverlayRefreshTimer;
+    bool m_connectionOverlayEnabled;
 	int m_lastEngineState;
 
+    QMenuBar *m_menuBar;
 	QLabel* m_dateTimeWidget;
 	QLabel* m_showSystemWidget;
 
-	QWidget* m_inputGUI;
-
-	int m_sampleRate;
-	quint64 m_centerFrequency;
-	std::string m_sampleFileName;
-
-	qtwebapp::LoggerWithFile *m_logger;
-
 	WebAPIRequestMapper *m_requestMapper;
 	WebAPIServer *m_apiServer;
-	WebAPIAdapterGUI *m_apiAdapter;
+	WebAPIAdapter *m_apiAdapter;
 	QString m_apiHost;
 	int m_apiPort;
+	QAction *m_spectrumToggleViewAction;
 
 	CommandKeyReceiver *m_commandKeyReceiver;
+    ProfileDialog *m_profileDialog;
+
+#if QT_CONFIG(process)
+	QProcess *m_fftWisdomProcess;
+#endif
+
+    bool m_settingsSaved;               // Records if settings have already been saved in response to a QCloseEvent
+    QPointer<LoadConfigurationFSM> m_configurationLoadFSM; // In-flight load started by loadConfiguration(), if any
+    const MainParser& m_parser;
 
 	void loadSettings();
-	void loadPresetSettings(const Preset* preset, int tabIndex);
-	void savePresetSettings(Preset* preset, int tabIndex);
-	void saveCommandSettings();
+	void loadDeviceSetPresetSettings(const Preset* preset, int deviceSetIndex);
+	void saveDeviceSetPresetSettings(Preset* preset, int deviceSetIndex);
+	void loadFeatureSetPresetSettings(const FeatureSetPreset* preset, int featureSetIndex, Workspace *workspace);
+	void saveFeatureSetPresetSettings(FeatureSetPreset* preset, int featureSetIndex);
+	FeatureGUI *getMCPServerGUI(Feature **feature = nullptr) const;
+	void updateMCPServerButton();
+    void setConnectionOverlayEnabled(bool enabled);
+    void updateConnectionOverlays();
 
+	QString openGLVersion() const;
+    void createMenuBar(QToolButton *button) const;
 	void createStatusBar();
-	void closeEvent(QCloseEvent*);
-	void updatePresetControls();
-	QTreeWidgetItem* addPresetToTree(const Preset* preset);
-	QTreeWidgetItem* addCommandToTree(const Command* command);
+	void closeEvent(QCloseEvent*) final;
 	void applySettings();
 
-	void addSourceDevice(int deviceIndex);
-	void addSinkDevice();
-    void removeLastDevice();
+    void removeDeviceSet(int deviceSetIndex);
+    void removeLastDeviceSet();
+    void removeAllDeviceSets();
+    void addFeatureSet();
+    void removeFeatureSet(unsigned int featureSetIndex);
+    void removeAllFeatureSets();
     void deleteChannel(int deviceSetIndex, int channelIndex);
-
-    void setLoggingOptions();
+    void channelDuplicateToDeviceSet(const ChannelGUI *sourceChannelGUI, int dsIndexDestination);
+    void sampleDeviceChange(int deviceType, int deviceSetIndex, int newDeviceIndex, Workspace *workspace);
+    void sampleSourceChange(int deviceSetIndex, int newDeviceIndex, Workspace *workspace);
+	void sampleSinkChange(int deviceSetIndex, int newDeviceIndex, Workspace *workspace);
+	void sampleMIMOChange(int deviceSetIndex, int newDeviceIndex, Workspace *workspace);
+    void sampleSourceCreate(
+        int deviceSetIndex,
+        int& deviceIndex,
+        DeviceUISet *deviceUISet
+    );
+    void sampleSourceCreateUI(
+        int deviceSetIndex,
+        int deviceIndex,
+        DeviceUISet *deviceUISet
+    );
+    void sampleSinkCreate(
+        int deviceSetIndex,
+        int& deviceIndex,
+        DeviceUISet *deviceUISet
+    );
+    void sampleSinkCreateUI(
+        int deviceSetIndex,
+        int deviceIndex,
+        DeviceUISet *deviceUISet
+    );
+    void sampleMIMOCreate(
+        int deviceSetIndex,
+        int& deviceIndex,
+        DeviceUISet *deviceUISet
+    );
+     void sampleMIMOCreateUI(
+        int deviceSetIndex,
+        int deviceIndex,
+        DeviceUISet *deviceUISet
+    );
+    void deleteFeature(int featureSetIndex, int featureIndex);
+    void loadDefaultPreset(const QString& pluginId, SerializableInterface *serializableInterface);
 
     bool handleMessage(const Message& cmd);
 
+protected:
+    void keyPressEvent(QKeyEvent* event) override;
+
+signals:
+    // For internal FSM usage
+    void allDeviceSetsRemoved();
+    void allDeviceSetsAdded();
+    void engineStopped();
+
 private slots:
 	void handleMessages();
-	void updateStatus();
+    void handleWorkspaceVisibility(Workspace *workspace, bool visibility);
+
+#ifdef ANDROID
+	void on_action_View_KeepScreenOn_toggled(bool checked);
+#endif
 	void on_action_View_Fullscreen_toggled(bool checked);
-	void on_presetSave_clicked();
-	void on_presetUpdate_clicked();
-    void on_presetEdit_clicked();
-	void on_presetExport_clicked();
-	void on_presetImport_clicked();
-	void on_settingsSave_clicked();
-	void on_presetLoad_clicked();
-	void on_presetDelete_clicked();
-	void on_presetTree_currentItemChanged(QTreeWidgetItem *current, QTreeWidgetItem *previous);
-	void on_presetTree_itemActivated(QTreeWidgetItem *item, int column);
-	void on_commandNew_clicked();
-    void on_commandDuplicate_clicked();
-    void on_commandEdit_clicked();
-    void on_commandDelete_clicked();
-    void on_commandRun_clicked();
-    void on_commandOutput_clicked();
-    void on_commandsSave_clicked();
-    void on_commandKeyboardConnect_toggled(bool checked);
+	void on_action_Profile_triggered();
+	void on_action_saveAll_triggered();
+    void on_action_Configurations_triggered();
 	void on_action_Audio_triggered();
+	void on_action_Graphics_triggered();
     void on_action_Logging_triggered();
-	void on_action_DV_Serial_triggered(bool checked);
+	void on_action_FFT_triggered();
+#if QT_CONFIG(process)
+	void on_action_FFTWisdom_triggered();
+    void on_action_commands_triggered();
+#endif
 	void on_action_My_Position_triggered();
-	void sampleSourceChanged();
-	void sampleSinkChanged();
-    void channelAddClicked(bool checked);
+    void on_action_DeviceUserArguments_triggered();
+    void on_action_Welcome_triggered();
+    void on_action_Quick_Start_triggered() const;
+    void on_action_Main_Window_triggered() const;
 	void on_action_Loaded_Plugins_triggered();
 	void on_action_About_triggered();
-	void on_action_addSourceDevice_triggered();
-	void on_action_addSinkDevice_triggered();
-	void on_action_removeLastDevice_triggered();
-	void on_action_Exit_triggered();
-	void tabInputViewIndexChanged();
-	void commandKeyPressed(Qt::Key key, Qt::KeyboardModifiers keyModifiers, bool release);
+
+	void updateStatus();
+    void addWorkspace();
+    void viewAllWorkspaces() const;
+    void removeEmptyWorkspaces();
+    void openConfigurationDialog(bool openOnly);
+    //!< Rebuilds the Window > Show submenu from the windows that are currently hidden
+    void populateShowMenu(QMenu *menu) const;
+    //!< Brings one hidden window back, along with its workspace if that is hidden too
+    void showWindow(QMdiSubWindow *window, int workspaceIndex) const;
+    void showAllHiddenWindows() const;
+    //!< Workspace the Window menu's arrangement items act on: the one last worked in
+    Workspace *currentWorkspace() const;
+    void loadDefaultConfigurations() const;
+	void loadConfiguration(const Configuration *configuration, bool fromDialog = false);
+    void saveConfiguration(Configuration *configuration);
+	void sampleSourceAdd(Workspace *deviceWorkspace, Workspace *spectrumWorkspace, int deviceIndex);
+	void sampleSinkAdd(Workspace *workspace, Workspace *spectrumWorkspace, int deviceIndex);
+	void sampleMIMOAdd(Workspace *workspace, Workspace *spectrumWorkspace, int deviceIndex);
+    void samplingDeviceChangeHandler(const DeviceGUI *deviceGUI, int newDeviceIndex);
+    void channelAddClicked(Workspace *workspace, int deviceSetIndex, int channelPluginIndex);
+    void featureAddClicked(Workspace *workspace, int featureIndex);
+    void featureMove(FeatureGUI *gui, int wsIndexDestnation);
+    void deviceStateChanged(DeviceAPI *deviceAPI);
+    void openFeaturePresetsDialog(QPoint p, Workspace *workspace);
+    void startMCPServer();
+    void showMCPServer();
+    void mcpServerFeatureAdded(int featureSetIndex, Feature *feature);
+    void mcpServerFeatureRemoved(int featureSetIndex, Feature *feature);
+    static bool isMCPServerFeature(const Feature* feature);
+    void startRemoteTCPSink();
+    void startAllAfterDelay();
+    void startAll();
+    void startAllDevices(const Workspace *workspace) const;
+    void stopAllDevices(const Workspace *workspace) const;
+    void deviceMove(DeviceGUI *gui, int wsIndexDestnation);
+    void mainSpectrumMove(MainSpectrumGUI *gui, int wsIndexDestnation);
+    void mainSpectrumShow(int deviceSetIndex);
+    void mainSpectrumRequestDeviceCenterFrequency(int deviceSetIndex, qint64 deviceCenterFrequency);
+    void showAllChannels(int deviceSetIndex);
+    void openDeviceSetPresetsDialog(QPoint p, const DeviceGUI *deviceGUI);
+	void commandKeyPressed(Qt::Key key, Qt::KeyboardModifiers keyModifiers, bool release) const;
+#if QT_CONFIG(process)
+	void fftWisdomProcessFinished(int exitCode, QProcess::ExitStatus exitStatus);
+#endif
+    void orientationChanged(Qt::ScreenOrientation orientation);
 };
 
 #endif // INCLUDE_MAINWINDOW_H

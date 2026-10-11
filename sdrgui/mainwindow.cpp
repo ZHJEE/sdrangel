@@ -1,6 +1,16 @@
 ///////////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
 // written by Christian Daniel                                                   //
+// Copyright (C) 2014 John Greb <hexameron@spam.no>                              //
+// Copyright (C) 2015-2023 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
+// Copyright (C) 2017 Ziga S <ziga.svetina@gmail.com>                            //
+// Copyright (C) 2018 beta-tester <alpha-beta-release@gmx.net>                   //
+// Copyright (C) 2019 Vort <vvort@yandex.ru>                                     //
+// Copyright (C) 2019 Davide Gerhard <rainbow@irh.it>                            //
+// Copyright (C) 2019 Stefan Biereigel <stefan@biereigel.de>                     //
+// Copyright (C) 2020-2023 Jon Beniston, M7RCE <jon@beniston.com>                //
+// Copyright (C) 2022 CRD716 <crd716@gmail.com>                                  //
+// Copyright (C) 2023 Mohamed <mohamedadlyi@github.com>                          //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -16,10 +26,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.          //
 ///////////////////////////////////////////////////////////////////////////////////
 
-#include <gui/commandkeyreceiver.h>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QProgressDialog>
 #include <QLabel>
+#include <QToolButton>
+#include <QShortcut>
 #include <QFile>
 #include <QFileInfo>
 #include <QFileDialog>
@@ -29,80 +41,127 @@
 #include <QKeyEvent>
 #include <QResource>
 #include <QFontDatabase>
+#include <QStandardPaths>
+#include <QDesktopServices>
+#include <QProcess>
+#include <QDirIterator>
+#include <QAction>
+#include <QShortcut>
+#include <QMenuBar>
+#include <QStatusBar>
+#include <QScreen>
+#include <QHash>
 
-#include <plugin/plugininstancegui.h>
-#include <plugin/plugininstancegui.h>
+#include "device/devicegui.h"
 #include "device/deviceapi.h"
 #include "device/deviceuiset.h"
+#include "device/deviceset.h"
 #include "device/deviceenumerator.h"
-#include "gui/indicator.h"
+#include "channel/channelapi.h"
+#include "channel/channelgui.h"
+#include "channel/channelwebapiutils.h"
+#include "feature/featureuiset.h"
+#include "feature/featureset.h"
+#include "feature/feature.h"
+#include "feature/featuregui.h"
+#include "feature/featurewebapiutils.h"
+#include "mainspectrum/mainspectrumgui.h"
+#include "commands/commandkeyreceiver.h"
 #include "gui/presetitem.h"
-#include "gui/commanditem.h"
-#include "gui/addpresetdialog.h"
-#include "gui/editcommanddialog.h"
-#include "gui/commandoutputdialog.h"
 #include "gui/pluginsdialog.h"
 #include "gui/aboutdialog.h"
-#include "gui/rollupwidget.h"
-#include "gui/channelwindow.h"
 #include "gui/audiodialog.h"
+#include "gui/graphicsdialog.h"
 #include "gui/loggingdialog.h"
-#include "gui/samplingdevicecontrol.h"
+#include "gui/deviceuserargsdialog.h"
+#include "gui/sdrangelsplash.h"
+#include "gui/mdiutils.h"
 #include "gui/mypositiondialog.h"
+#include "gui/fftdialog.h"
+#include "gui/fftwisdomdialog.h"
+#include "gui/workspace.h"
+#include "gui/connectionoverlay.h"
+#include "gui/featurepresetsdialog.h"
+#include "gui/devicesetpresetsdialog.h"
+#include "gui/commandsdialog.h"
+#include "gui/configurationsdialog.h"
+#include "gui/dialogpositioner.h"
+#include "gui/welcomedialog.h"
+#include "gui/profiledialog.h"
 #include "dsp/dspengine.h"
 #include "dsp/spectrumvis.h"
 #include "dsp/dspcommands.h"
 #include "dsp/devicesamplesource.h"
 #include "dsp/devicesamplesink.h"
+#include "dsp/devicesamplemimo.h"
 #include "dsp/dspdevicesourceengine.h"
 #include "dsp/dspdevicesinkengine.h"
+#include "dsp/dspdevicemimoengine.h"
 #include "plugin/pluginapi.h"
 #include "gui/glspectrum.h"
-#include "gui/glspectrumgui.h"
 #include "loggerwithfile.h"
 #include "webapi/webapirequestmapper.h"
 #include "webapi/webapiserver.h"
-#include "webapi/webapiadaptergui.h"
+#include "webapi/webapiadapter.h"
+#include "SWGFeatureSettings.h"
 #include "commands/command.h"
+#include "settings/serializableinterface.h"
+#ifdef ANDROID
+#include "util/android.h"
+#endif
 
+#include "remotetcpsinkstarter.h"
 #include "mainwindow.h"
 
 #include <audio/audiodevicemanager.h>
 
-#include "ui_mainwindow.h"
+//#include "ui_mainwindow.h"
+#include <QtWidgets/QApplication>
 
 #include <string>
 #include <QDebug>
+#include <QSplashScreen>
+#include <QProgressDialog>
 
-MESSAGE_CLASS_DEFINITION(MainWindow::MsgLoadPreset, Message)
-MESSAGE_CLASS_DEFINITION(MainWindow::MsgSavePreset, Message)
-MESSAGE_CLASS_DEFINITION(MainWindow::MsgDeletePreset, Message)
-MESSAGE_CLASS_DEFINITION(MainWindow::MsgAddDeviceSet, Message)
-MESSAGE_CLASS_DEFINITION(MainWindow::MsgRemoveLastDeviceSet, Message)
-MESSAGE_CLASS_DEFINITION(MainWindow::MsgSetDevice, Message)
-MESSAGE_CLASS_DEFINITION(MainWindow::MsgAddChannel, Message)
-MESSAGE_CLASS_DEFINITION(MainWindow::MsgDeleteChannel, Message)
-MESSAGE_CLASS_DEFINITION(MainWindow::MsgDeviceSetFocus, Message)
+#include "gui/accessiblevaluedial.h"
+#include "gui/accessiblevaluedialz.h"
 
-MainWindow *MainWindow::m_instance = 0;
+MainWindow *MainWindow::m_instance = nullptr;
 
 MainWindow::MainWindow(qtwebapp::LoggerWithFile *logger, const MainParser& parser, QWidget* parent) :
 	QMainWindow(parent),
-	ui(new Ui::MainWindow),
-	m_settings(),
-    m_masterTabIndex(0),
+	// ui(new Ui::MainWindow),
+    m_currentWorkspace(nullptr),
+    m_mainCore(MainCore::instance()),
 	m_dspEngine(DSPEngine::instance()),
+    m_connectionOverlayEnabled(false),
 	m_lastEngineState(DeviceAPI::StNotStarted),
-	m_inputGUI(0),
-	m_sampleRate(0),
-	m_centerFrequency(0),
-	m_sampleFileName(std::string("./test.sdriq")),
-	m_logger(logger)
+    m_dateTimeWidget(nullptr),
+    m_showSystemWidget(nullptr),
+    m_commandKeyReceiver(nullptr),
+    m_profileDialog(nullptr),
+#if QT_CONFIG(process)
+    m_fftWisdomProcess(nullptr),
+#endif
+    m_settingsSaved(false),
+    m_parser(parser)
 {
+    QAccessible::installFactory(AccessibleValueDial::factory);
+    QAccessible::installFactory(AccessibleValueDialZ::factory);
+
 	qDebug() << "MainWindow::MainWindow: start";
+    setWindowTitle("SDRangel");
+
+    QApplication::setOverrideCursor(Qt::WaitCursor);
 
     m_instance = this;
-	m_settings.setAudioDeviceManager(m_dspEngine->getAudioDeviceManager());
+    m_mainCore->m_logger = logger;
+    m_mainCore->m_masterTabIndex = 0;
+    m_mainCore->m_mainMessageQueue = &m_inputMessageQueue;
+	m_mainCore->m_settings.setAudioDeviceManager(m_dspEngine->getAudioDeviceManager());
+
+    connect(m_mainCore, &MainCore::featureAdded, this, &MainWindow::mcpServerFeatureAdded);
+    connect(m_mainCore, &MainCore::featureRemoved, this, &MainWindow::mcpServerFeatureRemoved);
 
     QFontDatabase::addApplicationFont(":/LiberationSans-Regular.ttf");
     QFontDatabase::addApplicationFont(":/LiberationMono-Regular.ttf");
@@ -111,115 +170,150 @@ MainWindow::MainWindow(qtwebapp::LoggerWithFile *logger, const MainParser& parse
     font.setPointSize(9);
     qApp->setFont(font);
 
-	ui->setupUi(this);
-	createStatusBar();
+    QPixmap logoPixmap(":/sdrangel_logo.png");
+    auto *splash = new SDRangelSplash(logoPixmap);
+    splash->setMessageRect(QRect(10, 80, 350, 16));
+    splash->show();
+    splash->showStatusMessage("starting...", Qt::white);
+    splash->showStatusMessage("starting...", Qt::white);
 
+    setWindowIcon(QIcon(":/sdrangel_icon.png"));
+#ifndef ANDROID
+    // To save screen space on Android, don't have menu bar. Instead menus are accessed via toolbar button
+    createMenuBar(nullptr);
+    createStatusBar();
+#endif
+
+#ifdef ANDROID
+    if (screen()->isLandscape(screen()->primaryOrientation())) {
+        setTabPosition(Qt::LeftDockWidgetArea, QTabWidget::West);
+    } else {
+        setTabPosition(Qt::LeftDockWidgetArea, QTabWidget::South);
+    }
+#else
+    setTabPosition(Qt::LeftDockWidgetArea, QTabWidget::West);
+#endif
+    setTabPosition(Qt::RightDockWidgetArea, QTabWidget::East);
 	setCorner(Qt::TopLeftCorner, Qt::LeftDockWidgetArea);
 	setCorner(Qt::BottomLeftCorner, Qt::LeftDockWidgetArea);
 	setCorner(Qt::TopRightCorner, Qt::RightDockWidgetArea);
 	setCorner(Qt::BottomRightCorner, Qt::RightDockWidgetArea);
 
-	// work around broken Qt dock widget ordering
-    removeDockWidget(ui->inputViewDock);
-	removeDockWidget(ui->inputSelectDock);
-	removeDockWidget(ui->spectraDisplayDock);
-	removeDockWidget(ui->presetDock);
-    removeDockWidget(ui->commandsDock);
-	removeDockWidget(ui->channelDock);
-    addDockWidget(Qt::LeftDockWidgetArea, ui->inputViewDock);
-	addDockWidget(Qt::LeftDockWidgetArea, ui->inputSelectDock);
-	addDockWidget(Qt::LeftDockWidgetArea, ui->spectraDisplayDock);
-	addDockWidget(Qt::LeftDockWidgetArea, ui->presetDock);
-    addDockWidget(Qt::LeftDockWidgetArea, ui->commandsDock);
-    tabifyDockWidget(ui->presetDock, ui->commandsDock);
-	addDockWidget(Qt::RightDockWidgetArea, ui->channelDock);
-
-	ui->inputViewDock->show();
-    ui->inputSelectDock->show();
-	ui->spectraDisplayDock->show();
-	ui->presetDock->show();
-	ui->commandsDock->show();
-	ui->channelDock->show();
-
-    ui->menu_Window->addAction(ui->inputViewDock->toggleViewAction());
-	ui->menu_Window->addAction(ui->inputSelectDock->toggleViewAction());
-	ui->menu_Window->addAction(ui->spectraDisplayDock->toggleViewAction());
-	ui->menu_Window->addAction(ui->presetDock->toggleViewAction());
-    ui->menu_Window->addAction(ui->commandsDock->toggleViewAction());
-	ui->menu_Window->addAction(ui->channelDock->toggleViewAction());
-
-    ui->tabInputsView->setStyleSheet("QWidget { background: rgb(50,50,50); } "
-            "QToolButton::checked { background: rgb(128,70,0); } "
-            "QComboBox::item:selected { color: rgb(255,140,0); } "
-            "QTabWidget::pane { border: 1px solid #C06900; } "
-            "QTabBar::tab:selected { background: rgb(128,70,0); }");
-    ui->tabInputsSelect->setStyleSheet("QWidget { background: rgb(50,50,50); } "
-            "QToolButton::checked { background: rgb(128,70,0); } "
-            "QComboBox::item:selected { color: rgb(255,140,0); } "
-            "QTabWidget::pane { border: 1px solid #808080; } "
-            "QTabBar::tab:selected { background: rgb(100,100,100); }");
-
 	connect(&m_inputMessageQueue, SIGNAL(messageEnqueued()), this, SLOT(handleMessages()), Qt::QueuedConnection);
+
+    connect(screen(), &QScreen::orientationChanged, this, &MainWindow::orientationChanged);
+    #if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
+    screen()->setOrientationUpdateMask(Qt::PortraitOrientation
+        | Qt::LandscapeOrientation
+        | Qt::InvertedPortraitOrientation
+        | Qt::InvertedLandscapeOrientation);
+    #endif
 
 	connect(&m_statusTimer, SIGNAL(timeout()), this, SLOT(updateStatus()));
 	m_statusTimer.start(1000);
+    m_connectionOverlayRefreshTimer.setInterval(500);
+    connect(&m_connectionOverlayRefreshTimer, &QTimer::timeout,
+        this, &MainWindow::updateConnectionOverlays);
+    // One application-wide shortcut: a shortcut on each workspace's button would be
+    // ambiguous with several docked workspaces, and would miss floating ones.
+    QShortcut *connectionOverlayShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_L), this);
+    connectionOverlayShortcut->setContext(Qt::ApplicationShortcut);
+    connect(connectionOverlayShortcut, &QShortcut::activated, this, [this]() {
+        setConnectionOverlayEnabled(!m_connectionOverlayEnabled);
+    });
 
-	m_masterTimer.start(50);
-
+    splash->showStatusMessage("load settings...", Qt::white);
     qDebug() << "MainWindow::MainWindow: load settings...";
 
-	loadSettings();
+    loadSettings();
 
+    splash->showStatusMessage("allocate FFTs...", Qt::white);
+
+    if (parser.getFFTWFWisdomFileName().length() != 0)
+    {
+        m_dspEngine->createFFTFactory(parser.getFFTWFWisdomFileName());
+    }
+    else
+    {
+        QString filePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        filePath += QDir::separator();
+        filePath += "fftw-wisdom";
+        auto fileInfo = QFileInfo(filePath);
+
+        if (fileInfo.exists()) {
+            m_dspEngine->createFFTFactory(filePath);
+        } else {
+            m_dspEngine->createFFTFactory("");
+        }
+    }
+
+    m_dspEngine->preAllocateFFTs();
+
+    splash->showStatusMessage("load plugins...", Qt::white);
     qDebug() << "MainWindow::MainWindow: load plugins...";
 
     m_pluginManager = new PluginManager(this);
+    m_mainCore->m_pluginManager = m_pluginManager;
+    m_pluginManager->setEnableSoapy(parser.getSoapy());
     m_pluginManager->loadPlugins(QString("plugins"));
+    m_pluginManager->loadPluginsNonDiscoverable(m_mainCore->m_settings.getDeviceUserArgs());
 
-    qDebug() << "MainWindow::MainWindow: select SampleSource from settings or default (file source) ...";
+    splash->showStatusMessage("Add command key receiver...", Qt::white);
+	m_commandKeyReceiver = new CommandKeyReceiver();
+	m_commandKeyReceiver->setRelease(true);
+	this->installEventFilter(m_commandKeyReceiver);
 
-	int deviceIndex = DeviceEnumerator::instance()->getRxSamplingDeviceIndex(m_settings.getSourceDeviceId(), m_settings.getSourceIndex());
-	addSourceDevice(deviceIndex);  // add the first device set with file source device as default if device in settings is not enumerated
-	m_deviceUIs.back()->m_deviceAPI->setBuddyLeader(true); // the first device is always the leader
+    splash->showStatusMessage("Add unique feature set...", Qt::white);
+    addFeatureSet(); // Create the uniuefeature set
+	m_apiAdapter = new WebAPIAdapter();
 
-	qDebug() << "MainWindow::MainWindow: load current preset settings...";
-
-	loadPresetSettings(m_settings.getWorkingPreset(), 0);
-
-	qDebug() << "MainWindow::MainWindow: apply settings...";
-
-	applySettings();
-
-	qDebug() << "MainWindow::MainWindow: update preset controls...";
-
-	updatePresetControls();
-
-	connect(ui->tabInputsView, SIGNAL(currentChanged(int)), this, SLOT(tabInputViewIndexChanged()));
+    splash->showStatusMessage("finishing...", Qt::white);
 
 	QString applicationDirPath = qApp->applicationDirPath();
 
+#ifdef _MSC_VER
     if (QResource::registerResource(applicationDirPath + "/sdrbase.rcc")) {
         qDebug("MainWindow::MainWindow: registered resource file %s/%s", qPrintable(applicationDirPath), "sdrbase.rcc");
     } else {
         qWarning("MainWindow::MainWindow: could not register resource file %s/%s", qPrintable(applicationDirPath), "sdrbase.rcc");
     }
+#endif
 
-	m_apiAdapter = new WebAPIAdapterGUI(*this);
 	m_requestMapper = new WebAPIRequestMapper(this);
 	m_requestMapper->setAdapter(m_apiAdapter);
 	m_apiHost = parser.getServerAddress();
 	m_apiPort = parser.getServerPort();
-	m_apiServer = new WebAPIServer(m_apiHost, m_apiPort, m_requestMapper);
+	m_apiServer = new WebAPIServer(m_apiHost, (uint16_t) m_apiPort, m_requestMapper);
 	m_apiServer->start();
 
-	m_commandKeyReceiver = new CommandKeyReceiver();
-	m_commandKeyReceiver->setRelease(true);
-	this->installEventFilter(m_commandKeyReceiver);
+    m_dspEngine->setMIMOSupport(true);
+
+    // Restore window size and position
+    QSettings s;
+    restoreGeometry(qUncompress(QByteArray::fromBase64(s.value("mainWindowGeometry").toByteArray())));
+    restoreState(qUncompress(QByteArray::fromBase64(s.value("mainWindowState").toByteArray())));
+
+    // Load initial configuration
+    InitFSM *fsm = new InitFSM(this, splash, !parser.getScratch() && !parser.getRemoteTCPSink(), !parser.getRemoteTCPSink());
+    connect(fsm, &InitFSM::finished, fsm, &InitFSM::deleteLater);
+    connect(fsm, &InitFSM::finished, splash, &SDRangelSplash::deleteLater);
+    connect(fsm, &InitFSM::finished, this, &MainWindow::startMCPServer);
+    if (parser.getRemoteTCPSink()) {
+        connect(fsm, &InitFSM::finished, this, &MainWindow::startRemoteTCPSink);
+    } else if (parser.getStart()) {
+        connect(fsm, &InitFSM::finished, this, &MainWindow::startAllAfterDelay);
+    }
+    fsm->start();
 
     qDebug() << "MainWindow::MainWindow: end";
 }
 
 MainWindow::~MainWindow()
 {
+	qDebug() << "MainWindow::~MainWindow";
+
+    setConnectionOverlayEnabled(false);
+    m_statusTimer.stop();
     m_apiServer->stop();
     delete m_apiServer;
     delete m_requestMapper;
@@ -229,244 +323,1508 @@ MainWindow::~MainWindow()
 	delete m_dateTimeWidget;
 	delete m_showSystemWidget;
 
-	delete ui;
+    removeAllFeatureSets();
 
-	qDebug() << "MainWindow::~MainWindow: end";
-	delete m_logger;
 	delete m_commandKeyReceiver;
-}
+    delete m_profileDialog;
 
-void MainWindow::addSourceDevice(int deviceIndex)
-{
-    DSPDeviceSourceEngine *dspDeviceSourceEngine = m_dspEngine->addDeviceSourceEngine();
-    dspDeviceSourceEngine->start();
-
-    uint dspDeviceSourceEngineUID =  dspDeviceSourceEngine->getUID();
-    char uidCStr[16];
-    sprintf(uidCStr, "UID:%d", dspDeviceSourceEngineUID);
-
-    int deviceTabIndex = m_deviceUIs.size();
-    m_deviceUIs.push_back(new DeviceUISet(deviceTabIndex, true, m_masterTimer));
-    m_deviceUIs.back()->m_deviceSourceEngine = dspDeviceSourceEngine;
-
-    char tabNameCStr[16];
-    sprintf(tabNameCStr, "R%d", deviceTabIndex);
-
-    DeviceAPI *deviceAPI = new DeviceAPI(DeviceAPI::StreamSingleRx, deviceTabIndex, dspDeviceSourceEngine, nullptr);
-
-    m_deviceUIs.back()->m_deviceAPI = deviceAPI;
-    m_deviceUIs.back()->m_samplingDeviceControl->setPluginManager(m_pluginManager);
-    QList<QString> channelNames;
-    m_pluginManager->listRxChannels(channelNames);
-    QStringList channelNamesList(channelNames);
-    m_deviceUIs.back()->m_samplingDeviceControl->getChannelSelector()->addItems(channelNamesList);
-
-    connect(m_deviceUIs.back()->m_samplingDeviceControl->getAddChannelButton(), SIGNAL(clicked(bool)), this, SLOT(channelAddClicked(bool)));
-
-    dspDeviceSourceEngine->addSink(m_deviceUIs.back()->m_spectrumVis);
-    ui->tabSpectra->addTab(m_deviceUIs.back()->m_spectrum, tabNameCStr);
-    ui->tabSpectraGUI->addTab(m_deviceUIs.back()->m_spectrumGUI, tabNameCStr);
-    ui->tabChannels->addTab(m_deviceUIs.back()->m_channelWindow, tabNameCStr);
-
-    connect(m_deviceUIs.back()->m_samplingDeviceControl, SIGNAL(changed()), this, SLOT(sampleSourceChanged()));
-
-    ui->tabInputsSelect->addTab(m_deviceUIs.back()->m_samplingDeviceControl, tabNameCStr);
-    ui->tabInputsSelect->setTabToolTip(deviceTabIndex, QString(uidCStr));
-
-    // Create a file source instance by default if requested device was not enumerated (index = -1)
-    if (deviceIndex < 0) {
-        deviceIndex = DeviceEnumerator::instance()->getFileSourceDeviceIndex();
+    for (const auto& workspace : m_workspaces) {
+        delete workspace;
     }
 
-    const PluginInterface::SamplingDevice *samplingDevice = DeviceEnumerator::instance()->getRxSamplingDevice(deviceIndex);
-    m_deviceUIs.back()->m_deviceAPI->setSamplingDeviceSequence(samplingDevice->sequence);
-    m_deviceUIs.back()->m_deviceAPI->setNbItems(samplingDevice->deviceNbItems);
-    m_deviceUIs.back()->m_deviceAPI->setItemIndex(samplingDevice->deviceItemIndex);
-    m_deviceUIs.back()->m_deviceAPI->setHardwareId(samplingDevice->hardwareId);
-    m_deviceUIs.back()->m_deviceAPI->setSamplingDeviceId(samplingDevice->id);
-    m_deviceUIs.back()->m_deviceAPI->setSamplingDeviceSerial(samplingDevice->serial);
-    m_deviceUIs.back()->m_deviceAPI->setSamplingDeviceDisplayName(samplingDevice->displayedName);
-    m_deviceUIs.back()->m_deviceAPI->setSamplingDevicePluginInterface(DeviceEnumerator::instance()->getRxPluginInterface(deviceIndex));
-
-    m_deviceUIs.back()->m_samplingDeviceControl->setSelectedDeviceIndex(deviceIndex);
-
-    // delete previous plugin GUI
-    m_deviceUIs.back()->m_deviceAPI->getPluginInterface()->deleteSampleSourcePluginInstanceGUI(
-            m_deviceUIs.back()->m_deviceAPI->getSamplingDevicePluginInstanceGUI());
-
-
-    DeviceSampleSource *source = m_deviceUIs.back()->m_deviceAPI->getPluginInterface()->createSampleSourcePluginInstanceInput(
-            m_deviceUIs.back()->m_deviceAPI->getSamplingDeviceId(), m_deviceUIs.back()->m_deviceAPI);
-    m_deviceUIs.back()->m_deviceAPI->setSampleSource(source);
-    QWidget *gui;
-    PluginInstanceGUI *pluginGUI = m_deviceUIs.back()->m_deviceAPI->getPluginInterface()->createSampleSourcePluginInstanceGUI(
-            m_deviceUIs.back()->m_deviceAPI->getSamplingDeviceId(),
-            &gui,
-            m_deviceUIs.back());
-    m_deviceUIs.back()->m_deviceAPI->getSampleSource()->setMessageQueueToGUI(pluginGUI->getInputMessageQueue());
-    m_deviceUIs.back()->m_deviceAPI->setSamplingDevicePluginInstanceGUI(pluginGUI);
-    m_deviceUIs.back()->m_deviceAPI->getSampleSource()->init();
-    setDeviceGUI(deviceTabIndex, gui, m_deviceUIs.back()->m_deviceAPI->getSamplingDeviceDisplayName());
+	qDebug() << "MainWindow::~MainWindow: end";
 }
 
-void MainWindow::addSinkDevice()
+MainWindowFSM::MainWindowFSM(MainWindow *mainWindow, QObject *parent) :
+    QStateMachine(parent),
+    m_mainWindow(mainWindow),
+    m_finalState(nullptr)
 {
-    DSPDeviceSinkEngine *dspDeviceSinkEngine = m_dspEngine->addDeviceSinkEngine();
-    dspDeviceSinkEngine->start();
+}
 
-    uint dspDeviceSinkEngineUID =  dspDeviceSinkEngine->getUID();
-    char uidCStr[16];
-    sprintf(uidCStr, "UID:%d", dspDeviceSinkEngineUID);
+void MainWindowFSM::createStates(int states)
+{
+    for (int i = 0; i < states - 1; i++) {
+        m_states.append(new QState());
+    }
+    m_finalState = new QFinalState();
+    for (int i = 0; i < m_states.size(); i++) {
+        addState(m_states[i]);
+    }
+    addState(m_finalState);
+    setInitialState(m_states[0]);
+}
 
-    int deviceTabIndex = m_deviceUIs.size();
-    m_deviceUIs.push_back(new DeviceUISet(deviceTabIndex, false, m_masterTimer));
-    m_deviceUIs.back()->m_deviceSourceEngine = 0;
-    m_deviceUIs.back()->m_deviceSinkEngine = dspDeviceSinkEngine;
+AddSampleSourceFSM::AddSampleSourceFSM(MainWindow *mainWindow, Workspace *deviceWorkspace, Workspace *spectrumWorkspace, int deviceIndex, bool loadDefaults, QObject *parent) :
+    MainWindowFSM(mainWindow, parent),
+    m_deviceWorkspace(deviceWorkspace),
+    m_spectrumWorkspace(spectrumWorkspace),
+    m_deviceIndex(deviceIndex),
+    m_loadDefaults(loadDefaults),
+    m_deviceSetIndex(-1),
+    m_deviceAPI(nullptr),
+    m_deviceUISet(nullptr)
+{
+    // Create source engine
+    addEngine();
 
-    char tabNameCStr[16];
-    sprintf(tabNameCStr, "T%d", deviceTabIndex);
+    // Create FSM
+    createStates(3);
 
-    DeviceAPI *deviceAPI = new DeviceAPI(DeviceAPI::StreamSingleTx, deviceTabIndex, nullptr, dspDeviceSinkEngine);
+    m_states[0]->addTransition(m_dspDeviceSourceEngine, &DSPDeviceSourceEngine::sampleSet, m_states[1]);
+    m_states[1]->addTransition(m_finalState);
 
-    m_deviceUIs.back()->m_deviceAPI = deviceAPI;
-    m_deviceUIs.back()->m_samplingDeviceControl->setPluginManager(m_pluginManager);
+    connect(m_states[0], &QState::entered, this, &AddSampleSourceFSM::addDevice);
+    connect(m_states[1], &QState::entered, this, &AddSampleSourceFSM::addDeviceUI);
+}
+
+void AddSampleSourceFSM::addEngine()
+{
+    // Create the source engine
+    m_dspDeviceSourceEngine = m_mainWindow->m_dspEngine->addDeviceSourceEngine();
+}
+
+void AddSampleSourceFSM::addDevice()
+{
+    m_deviceSetIndex = (int) m_mainWindow->m_deviceUIs.size();
+    m_mainWindow->m_mainCore->appendDeviceSet(0);
+
+    DeviceSet *deviceSet = m_mainWindow->m_mainCore->getDeviceSets().back();
+    m_deviceUISet = new DeviceUISet(m_deviceSetIndex, deviceSet);
+    m_mainWindow->m_deviceUIs.push_back(m_deviceUISet);
+
+    m_deviceUISet->m_deviceSourceEngine = m_dspDeviceSourceEngine;
+    deviceSet->m_deviceSourceEngine = m_dspDeviceSourceEngine;
+    m_deviceUISet->m_deviceSinkEngine = nullptr;
+    deviceSet->m_deviceSinkEngine = nullptr;
+    m_deviceUISet->m_deviceMIMOEngine = nullptr;
+    deviceSet->m_deviceMIMOEngine = nullptr;
+
+    m_deviceAPI = new DeviceAPI(DeviceAPI::StreamSingleRx, m_deviceSetIndex, m_dspDeviceSourceEngine, nullptr, nullptr);
+
+    m_deviceUISet->m_deviceAPI = m_deviceAPI;
+    deviceSet->m_deviceAPI = m_deviceAPI;
     QList<QString> channelNames;
-    m_pluginManager->listTxChannels(channelNames);
-    QStringList channelNamesList(channelNames);
-    m_deviceUIs.back()->m_samplingDeviceControl->getChannelSelector()->addItems(channelNamesList);
+    m_mainWindow->m_pluginManager->listRxChannels(channelNames);
+    m_deviceUISet->setNumberOfAvailableRxChannels(channelNames.size());
 
-    connect(m_deviceUIs.back()->m_samplingDeviceControl->getAddChannelButton(), SIGNAL(clicked(bool)), this, SLOT(channelAddClicked(bool)));
+    m_dspDeviceSourceEngine->addSink(m_deviceUISet->m_spectrumVis);
 
-    dspDeviceSinkEngine->addSpectrumSink(m_deviceUIs.back()->m_spectrumVis);
-    ui->tabSpectra->addTab(m_deviceUIs.back()->m_spectrum, tabNameCStr);
-    ui->tabSpectraGUI->addTab(m_deviceUIs.back()->m_spectrumGUI, tabNameCStr);
-    ui->tabChannels->addTab(m_deviceUIs.back()->m_channelWindow, tabNameCStr);
+    // Create a file source instance by default if requested device was not enumerated (index = -1)
+    if (m_deviceIndex < 0) {
+        m_deviceIndex = DeviceEnumerator::instance()->getFileInputDeviceIndex();
+    }
 
-    connect(m_deviceUIs.back()->m_samplingDeviceControl, SIGNAL(changed()), this, SLOT(sampleSinkChanged()));
-
-    ui->tabInputsSelect->addTab(m_deviceUIs.back()->m_samplingDeviceControl, tabNameCStr);
-    ui->tabInputsSelect->setTabToolTip(deviceTabIndex, QString(uidCStr));
-
-    // create a file sink by default
-    int fileSinkDeviceIndex = DeviceEnumerator::instance()->getFileSinkDeviceIndex();
-    const PluginInterface::SamplingDevice *samplingDevice = DeviceEnumerator::instance()->getTxSamplingDevice(fileSinkDeviceIndex);
-    m_deviceUIs.back()->m_deviceAPI->setSamplingDeviceSequence(samplingDevice->sequence);
-    m_deviceUIs.back()->m_deviceAPI->setNbItems(samplingDevice->deviceNbItems);
-    m_deviceUIs.back()->m_deviceAPI->setItemIndex(samplingDevice->deviceItemIndex);
-    m_deviceUIs.back()->m_deviceAPI->setHardwareId(samplingDevice->hardwareId);
-    m_deviceUIs.back()->m_deviceAPI->setSamplingDeviceId(samplingDevice->id);
-    m_deviceUIs.back()->m_deviceAPI->setSamplingDeviceSerial(samplingDevice->serial);
-    m_deviceUIs.back()->m_deviceAPI->setSamplingDeviceDisplayName(samplingDevice->displayedName);
-    m_deviceUIs.back()->m_deviceAPI->setSamplingDevicePluginInterface(DeviceEnumerator::instance()->getTxPluginInterface(fileSinkDeviceIndex));
-
-    m_deviceUIs.back()->m_samplingDeviceControl->setSelectedDeviceIndex(fileSinkDeviceIndex);
-
-    // delete previous plugin GUI if it exists
-    m_deviceUIs.back()->m_deviceAPI->getPluginInterface()->deleteSampleSourcePluginInstanceGUI(
-            m_deviceUIs.back()->m_deviceAPI->getSamplingDevicePluginInstanceGUI());
-
-    DeviceSampleSink *sink = m_deviceUIs.back()->m_deviceAPI->getPluginInterface()->createSampleSinkPluginInstanceOutput(
-            m_deviceUIs.back()->m_deviceAPI->getSamplingDeviceId(), m_deviceUIs.back()->m_deviceAPI);
-    m_deviceUIs.back()->m_deviceAPI->setSampleSink(sink);
-    QWidget *gui;
-    PluginInstanceGUI *pluginUI = m_deviceUIs.back()->m_deviceAPI->getPluginInterface()->createSampleSinkPluginInstanceGUI(
-            m_deviceUIs.back()->m_deviceAPI->getSamplingDeviceId(),
-            &gui,
-            m_deviceUIs.back());
-    m_deviceUIs.back()->m_deviceAPI->getSampleSink()->setMessageQueueToGUI(pluginUI->getInputMessageQueue());
-    m_deviceUIs.back()->m_deviceAPI->setSamplingDevicePluginInstanceGUI(pluginUI);
-    m_deviceUIs.back()->m_deviceAPI->getSampleSink()->init();
-    setDeviceGUI(deviceTabIndex, gui, m_deviceUIs.back()->m_deviceAPI->getSamplingDeviceDisplayName(), false);
+    m_mainWindow->sampleSourceCreate(m_deviceSetIndex, m_deviceIndex, m_deviceUISet);
 }
 
-void MainWindow::removeLastDevice()
+void AddSampleSourceFSM::addDeviceUI()
 {
-	if (m_deviceUIs.back()->m_deviceSourceEngine) // source tab
-	{
-	    DSPDeviceSourceEngine *lastDeviceEngine = m_deviceUIs.back()->m_deviceSourceEngine;
-	    lastDeviceEngine->stopAcquistion();
-	    lastDeviceEngine->removeSink(m_deviceUIs.back()->m_spectrumVis);
+    m_mainWindow->sampleSourceCreateUI(m_deviceSetIndex, m_deviceIndex, m_deviceUISet);
 
-	    ui->tabSpectraGUI->removeTab(ui->tabSpectraGUI->count() - 1);
-	    ui->tabSpectra->removeTab(ui->tabSpectra->count() - 1);
+    m_deviceUISet->m_deviceGUI->setWorkspaceIndex(m_deviceWorkspace->getIndex());
+    m_deviceUISet->m_mainSpectrumGUI->setWorkspaceIndex(m_spectrumWorkspace->getIndex());
+    MainSpectrumGUI *mainSpectrumGUI = m_deviceUISet->m_mainSpectrumGUI;
 
-        // deletes old UI and input object
-        m_deviceUIs.back()->freeRxChannels();      // destroys the channel instances
-        m_deviceUIs.back()->m_deviceAPI->getSampleSource()->setMessageQueueToGUI(0); // have source stop sending messages to the GUI
-        m_deviceUIs.back()->m_deviceAPI->getPluginInterface()->deleteSampleSourcePluginInstanceGUI(
-                m_deviceUIs.back()->m_deviceAPI->getSamplingDevicePluginInstanceGUI());
-        m_deviceUIs.back()->m_deviceAPI->resetSamplingDeviceId();
-        m_deviceUIs.back()->m_deviceAPI->getPluginInterface()->deleteSampleSourcePluginInstanceInput(
-                m_deviceUIs.back()->m_deviceAPI->getSampleSource());
-        m_deviceUIs.back()->m_deviceAPI->clearBuddiesLists(); // clear old API buddies lists
-        m_deviceUIs.back()->m_samplingDeviceControl->removeSelectedDeviceIndex(); // This releases the device in the device list
+    QObject::connect(
+        mainSpectrumGUI,
+        &MainSpectrumGUI::moveToWorkspace,
+        m_mainWindow,
+        [m_mainWindow=m_mainWindow, mainSpectrumGUI](int wsIndexDest){ m_mainWindow->mainSpectrumMove(mainSpectrumGUI, wsIndexDest); }
+    );
 
-	    ui->tabChannels->removeTab(ui->tabChannels->count() - 1);
+    QObject::connect(
+        m_deviceUISet->m_deviceGUI,
+        &DeviceGUI::addChannelEmitted,
+        m_mainWindow,
+        [m_mainWindow=m_mainWindow, m_deviceWorkspace=m_deviceWorkspace, m_deviceSetIndex=m_deviceSetIndex](int channelPluginIndex){
+            m_mainWindow->channelAddClicked(m_deviceWorkspace, m_deviceSetIndex, channelPluginIndex);
+        }
+    );
 
-	    ui->tabInputsSelect->removeTab(ui->tabInputsSelect->count() - 1);
+    QObject::connect(
+        mainSpectrumGUI,
+        &MainSpectrumGUI::requestCenterFrequency,
+        m_mainWindow,
+        &MainWindow::mainSpectrumRequestDeviceCenterFrequency
+    );
 
-	    m_deviceWidgetTabs.removeLast();
-	    ui->tabInputsView->clear();
+    QObject::connect(
+        m_deviceAPI,
+        &DeviceAPI::stateChanged,
+        m_mainWindow,
+        &MainWindow::deviceStateChanged
+    );
 
-	    for (int i = 0; i < m_deviceWidgetTabs.size(); i++)
-	    {
-	        qDebug("MainWindow::removeLastDevice: adding back tab for %s", m_deviceWidgetTabs[i].displayName.toStdString().c_str());
-	        ui->tabInputsView->addTab(m_deviceWidgetTabs[i].gui, m_deviceWidgetTabs[i].tabName);
-	        ui->tabInputsView->setTabToolTip(i, m_deviceWidgetTabs[i].displayName);
-	    }
+    m_deviceWorkspace->addToMdiArea(m_deviceUISet->m_deviceGUI);
+    m_spectrumWorkspace->addToMdiArea(m_deviceUISet->m_mainSpectrumGUI);
+    if (m_loadDefaults) {
+    m_mainWindow->loadDefaultPreset(m_deviceAPI->getSamplingDeviceId(), m_deviceUISet);
+    }
+    emit m_mainWindow->m_mainCore->deviceSetAdded(m_deviceSetIndex, m_deviceAPI);
 
-	    DeviceAPI *sourceAPI = m_deviceUIs.back()->m_deviceAPI;
-	    delete m_deviceUIs.back();
+#ifdef ANDROID
+    // Seemingly needed on some versions of Android, otherwise the new windows aren't always displayed??
+    m_deviceWorkspace->repaint();
+#endif
+}
 
-	    lastDeviceEngine->stop();
-	    m_dspEngine->removeLastDeviceSourceEngine();
+AddSampleSinkFSM::AddSampleSinkFSM(MainWindow *mainWindow, Workspace *deviceWorkspace, Workspace *spectrumWorkspace, int deviceIndex, bool loadDefaults, QObject *parent) :
+    MainWindowFSM(mainWindow, parent),
+    m_deviceWorkspace(deviceWorkspace),
+    m_spectrumWorkspace(spectrumWorkspace),
+    m_deviceIndex(deviceIndex),
+    m_loadDefaults(loadDefaults),
+    m_deviceSetIndex(-1),
+    m_deviceAPI(nullptr),
+    m_deviceUISet(nullptr)
+{
+    // Create source engine
+    addEngine();
 
-	    delete sourceAPI;
+    // Create FSM
+    createStates(3);
+
+    m_states[0]->addTransition(m_dspDeviceSinkEngine, &DSPDeviceSinkEngine::sampleSet, m_states[1]);
+    m_states[1]->addTransition(m_finalState);
+
+    connect(m_states[0], &QState::entered, this, &AddSampleSinkFSM::addDevice);
+    connect(m_states[1], &QState::entered, this, &AddSampleSinkFSM::addDeviceUI);
+}
+
+void AddSampleSinkFSM::addEngine()
+{
+    // Create the source engine
+    m_dspDeviceSinkEngine = m_mainWindow->m_dspEngine->addDeviceSinkEngine();
+}
+
+void AddSampleSinkFSM::addDevice()
+{
+    m_deviceSetIndex = (int) m_mainWindow->m_deviceUIs.size();
+    m_mainWindow->m_mainCore->appendDeviceSet(1);
+
+    DeviceSet *deviceSet = m_mainWindow->m_mainCore->getDeviceSets().back();
+    m_deviceUISet = new DeviceUISet(m_deviceSetIndex, deviceSet);
+    m_mainWindow->m_deviceUIs.push_back(m_deviceUISet);
+
+    m_deviceUISet->m_deviceSourceEngine = nullptr;
+    deviceSet->m_deviceSourceEngine = nullptr;
+    m_deviceUISet->m_deviceSinkEngine = m_dspDeviceSinkEngine;
+    deviceSet->m_deviceSinkEngine = m_dspDeviceSinkEngine;
+    m_deviceUISet->m_deviceMIMOEngine = nullptr;
+    deviceSet->m_deviceMIMOEngine = nullptr;
+
+    m_deviceAPI = new DeviceAPI(DeviceAPI::StreamSingleTx, m_deviceSetIndex, nullptr, m_dspDeviceSinkEngine, nullptr);
+
+    m_deviceUISet->m_deviceAPI = m_deviceAPI;
+    deviceSet->m_deviceAPI = m_deviceAPI;
+    QList<QString> channelNames;
+    m_mainWindow->m_pluginManager->listTxChannels(channelNames);
+    m_deviceUISet->setNumberOfAvailableTxChannels(channelNames.size());
+
+    m_dspDeviceSinkEngine->addSpectrumSink(m_deviceUISet->m_spectrumVis);
+    m_deviceUISet->m_spectrum->setDisplayedStream(false, 0);
+
+    // Create a file sink instance by default if requested device was not enumerated (index = -1)
+    if (m_deviceIndex < 0) {
+        m_deviceIndex = DeviceEnumerator::instance()->getFileOutputDeviceIndex();
+    }
+
+    m_mainWindow->sampleSinkCreate(m_deviceSetIndex, m_deviceIndex, m_deviceUISet);
+}
+
+void AddSampleSinkFSM::addDeviceUI()
+{
+    m_mainWindow->sampleSinkCreateUI(m_deviceSetIndex, m_deviceIndex, m_deviceUISet);
+
+    m_deviceUISet->m_deviceGUI->setWorkspaceIndex(m_deviceWorkspace->getIndex());
+    m_deviceUISet->m_mainSpectrumGUI->setWorkspaceIndex(m_spectrumWorkspace->getIndex());
+    MainSpectrumGUI *mainSpectrumGUI = m_deviceUISet->m_mainSpectrumGUI;
+
+    QObject::connect(
+        mainSpectrumGUI,
+        &MainSpectrumGUI::moveToWorkspace,
+        m_mainWindow,
+        [m_mainWindow=m_mainWindow, mainSpectrumGUI](int wsIndexDest){ m_mainWindow->mainSpectrumMove(mainSpectrumGUI, wsIndexDest); }
+    );
+
+    QObject::connect(
+        m_deviceUISet->m_deviceGUI,
+        &DeviceGUI::addChannelEmitted,
+        m_mainWindow,
+        [m_mainWindow=m_mainWindow, m_deviceWorkspace=m_deviceWorkspace, m_deviceSetIndex=m_deviceSetIndex](int channelPluginIndex){
+            m_mainWindow->channelAddClicked(m_deviceWorkspace, m_deviceSetIndex, channelPluginIndex);
+        }
+    );
+
+    QObject::connect(
+        mainSpectrumGUI,
+        &MainSpectrumGUI::requestCenterFrequency,
+        m_mainWindow,
+        &MainWindow::mainSpectrumRequestDeviceCenterFrequency
+    );
+
+    QObject::connect(
+        m_deviceAPI,
+        &DeviceAPI::stateChanged,
+        m_mainWindow,
+        &MainWindow::deviceStateChanged
+    );
+
+    m_deviceWorkspace->addToMdiArea(m_deviceUISet->m_deviceGUI);
+    m_spectrumWorkspace->addToMdiArea(m_deviceUISet->m_mainSpectrumGUI);
+    if (m_loadDefaults) {
+    m_mainWindow->loadDefaultPreset(m_deviceAPI->getSamplingDeviceId(), m_deviceUISet);
+    }
+    emit m_mainWindow->m_mainCore->deviceSetAdded(m_deviceSetIndex, m_deviceAPI);
+
+#ifdef ANDROID
+    // Seemingly needed on some versions of Android, otherwise the new windows aren't always displayed??
+    m_deviceWorkspace->repaint();
+#endif
+}
+
+AddSampleMIMOFSM::AddSampleMIMOFSM(MainWindow *mainWindow, Workspace *deviceWorkspace, Workspace *spectrumWorkspace, int deviceIndex, bool loadDefaults, QObject *parent) :
+    MainWindowFSM(mainWindow, parent),
+    m_deviceWorkspace(deviceWorkspace),
+    m_spectrumWorkspace(spectrumWorkspace),
+    m_deviceIndex(deviceIndex),
+    m_loadDefaults(loadDefaults),
+    m_deviceSetIndex(-1),
+    m_deviceAPI(nullptr),
+    m_deviceUISet(nullptr)
+{
+    // Create source engine
+    addEngine();
+
+    // Create FSM
+    createStates(3);
+
+    m_states[0]->addTransition(m_dspDeviceMIMOEngine, &DSPDeviceMIMOEngine::sampleSet, m_states[1]);
+    m_states[1]->addTransition(m_finalState);
+
+    connect(m_states[0], &QState::entered, this, &AddSampleMIMOFSM::addDevice);
+    connect(m_states[1], &QState::entered, this, &AddSampleMIMOFSM::addDeviceUI);
+}
+
+void AddSampleMIMOFSM::addEngine()
+{
+    // Create the source engine
+    m_dspDeviceMIMOEngine = m_mainWindow->m_dspEngine->addDeviceMIMOEngine();
+}
+
+void AddSampleMIMOFSM::addDevice()
+{
+    m_deviceSetIndex = (int) m_mainWindow->m_deviceUIs.size();
+    m_mainWindow->m_mainCore->appendDeviceSet(2);
+
+    DeviceSet *deviceSet = m_mainWindow->m_mainCore->getDeviceSets().back();
+    m_deviceUISet = new DeviceUISet(m_deviceSetIndex, deviceSet);
+    m_mainWindow->m_deviceUIs.push_back(m_deviceUISet);
+
+    m_deviceUISet->m_deviceSourceEngine = nullptr;
+    deviceSet->m_deviceSourceEngine = nullptr;
+    m_deviceUISet->m_deviceSinkEngine = nullptr;
+    deviceSet->m_deviceSinkEngine = nullptr;
+    m_deviceUISet->m_deviceMIMOEngine = m_dspDeviceMIMOEngine;
+    deviceSet->m_deviceMIMOEngine = m_dspDeviceMIMOEngine;
+
+    m_deviceAPI = new DeviceAPI(DeviceAPI::StreamMIMO, m_deviceSetIndex, nullptr, nullptr, m_dspDeviceMIMOEngine);
+
+    m_deviceUISet->m_deviceAPI = m_deviceAPI;
+    deviceSet->m_deviceAPI = m_deviceAPI;
+    QList<QString> mimoChannelNames;
+    m_mainWindow->m_pluginManager->listMIMOChannels(mimoChannelNames);
+    m_deviceUISet->setNumberOfAvailableMIMOChannels(mimoChannelNames.size());
+    // Add Rx channels
+    QList<QString> rxChannelNames;
+    m_mainWindow->m_pluginManager->listRxChannels(rxChannelNames);
+    m_deviceUISet->setNumberOfAvailableRxChannels(rxChannelNames.size());
+    // Add Tx channels
+    QList<QString> txChannelNames;
+    m_mainWindow->m_pluginManager->listTxChannels(txChannelNames);
+    m_deviceUISet->setNumberOfAvailableTxChannels(txChannelNames.size());
+
+    m_dspDeviceMIMOEngine->addSpectrumSink(m_deviceUISet->m_spectrumVis);
+
+    // Create a Test MIMO instance by default if requested device was not enumerated (index = -1)
+    if (m_deviceIndex < 0) {
+        m_deviceIndex = DeviceEnumerator::instance()->getTestMIMODeviceIndex();
+    }
+
+    m_mainWindow->sampleMIMOCreate(m_deviceSetIndex, m_deviceIndex, m_deviceUISet);
+}
+
+void AddSampleMIMOFSM::addDeviceUI()
+{
+    m_mainWindow->sampleMIMOCreateUI(m_deviceSetIndex, m_deviceIndex, m_deviceUISet);
+
+    m_deviceUISet->m_deviceGUI->setWorkspaceIndex(m_deviceWorkspace->getIndex());
+    m_deviceUISet->m_mainSpectrumGUI->setWorkspaceIndex(m_spectrumWorkspace->getIndex());
+    MainSpectrumGUI *mainSpectrumGUI = m_deviceUISet->m_mainSpectrumGUI;
+
+    QObject::connect(
+        m_deviceUISet->m_deviceGUI,
+        &DeviceGUI::addChannelEmitted,
+        m_mainWindow,
+        [m_mainWindow=m_mainWindow, m_deviceWorkspace=m_deviceWorkspace, m_deviceSetIndex=m_deviceSetIndex](int channelPluginIndex){
+            m_mainWindow->channelAddClicked(m_deviceWorkspace, m_deviceSetIndex, channelPluginIndex);
+        }
+    );
+
+    QObject::connect(
+        mainSpectrumGUI,
+        &MainSpectrumGUI::requestCenterFrequency,
+        m_mainWindow,
+        &MainWindow::mainSpectrumRequestDeviceCenterFrequency
+    );
+
+    QObject::connect(
+        m_deviceAPI,
+        &DeviceAPI::stateChanged,
+        m_mainWindow,
+        &MainWindow::deviceStateChanged
+    );
+
+    m_deviceWorkspace->addToMdiArea(m_deviceUISet->m_deviceGUI);
+    m_spectrumWorkspace->addToMdiArea(m_deviceUISet->m_mainSpectrumGUI);
+    if (m_loadDefaults) {
+    m_mainWindow->loadDefaultPreset(m_deviceAPI->getSamplingDeviceId(), m_deviceUISet);
+    }
+    emit m_mainWindow->m_mainCore->deviceSetAdded(m_deviceSetIndex, m_deviceAPI);
+
+#ifdef ANDROID
+    // Seemingly needed on some versions of Android, otherwise the new windows aren't always displayed??
+    m_deviceWorkspace->repaint();
+#endif
+}
+
+RemoveDeviceSetFSM::RemoveDeviceSetFSM(MainWindow *mainWindow, int deviceSetIndex, QObject *parent) :
+    MainWindowFSM(mainWindow, parent),
+    m_deviceSetIndex(deviceSetIndex),
+    m_deviceSourceEngine(nullptr),
+    m_deviceSinkEngine(nullptr),
+    m_deviceMIMOEngine(nullptr),
+    m_t1(nullptr),
+    m_t2(nullptr)
+{
+    // Create FSM
+    createStates(6);
+
+    m_deviceUISet = m_mainWindow->m_deviceUIs[m_deviceSetIndex];
+    if (m_deviceUISet->m_deviceSourceEngine)
+    {
+        m_deviceSourceEngine = m_deviceUISet->m_deviceSourceEngine;
+        m_t1 = new QSignalTransition(m_deviceSourceEngine, &DSPDeviceSourceEngine::acquistionStopped, m_states[0]);
+        m_t1->setTargetState(m_states[1]);
+        m_t2 = new QSignalTransition(m_deviceSourceEngine, &DSPDeviceSourceEngine::sinkRemoved, m_states[1]);
+        m_t2->setTargetState(m_states[2]);
+    }
+    else if (m_deviceUISet->m_deviceSinkEngine)
+    {
+        m_deviceSinkEngine = m_deviceUISet->m_deviceSinkEngine;
+        m_t1 = new QSignalTransition(m_deviceSinkEngine, &DSPDeviceSinkEngine::generationStopped, m_states[0]);
+        m_t1->setTargetState(m_states[1]);
+        m_t2 = new QSignalTransition(m_deviceSinkEngine, &DSPDeviceSinkEngine::spectrumSinkRemoved, m_states[1]);
+        m_t2->setTargetState(m_states[2]);
+    }
+    else if (m_deviceUISet->m_deviceMIMOEngine)
+    {
+        m_deviceMIMOEngine = m_deviceUISet->m_deviceMIMOEngine;
+        m_t1 = new QSignalTransition(m_deviceMIMOEngine, &DSPDeviceMIMOEngine::acquisitionStopped, m_states[0]);
+        m_t1->setTargetState(m_states[1]);
+        m_t2 = new QSignalTransition(m_deviceMIMOEngine, &DSPDeviceMIMOEngine::spectrumSinkRemoved, m_states[1]);
+        m_t2->setTargetState(m_states[2]);
+    }
+    m_states[2]->addTransition(m_states[3]);
+    m_states[3]->addTransition(m_mainWindow, &MainWindow::engineStopped, m_states[4]);
+    m_states[4]->addTransition(m_finalState);
+
+    connect(m_states[0], &QState::entered, this, &RemoveDeviceSetFSM::stopAcquisition);
+    connect(m_states[1], &QState::entered, this, &RemoveDeviceSetFSM::removeSink);
+    connect(m_states[2], &QState::entered, this, &RemoveDeviceSetFSM::removeUI);
+    connect(m_states[3], &QState::entered, this, &RemoveDeviceSetFSM::stopEngine);
+    connect(m_states[4], &QState::entered, this, &RemoveDeviceSetFSM::removeDeviceSet);
+}
+
+void RemoveDeviceSetFSM::stopAcquisition()
+{
+    qDebug() << "RemoveDeviceSetFSM::stopAcquisition";
+    if (m_deviceSourceEngine)
+    {
+        m_deviceSourceEngine->stopAcquistion();
+    }
+    else if (m_deviceSinkEngine)
+    {
+	    m_deviceSinkEngine->stopGeneration();
+    }
+    else
+    {
+        m_deviceMIMOEngine->stopProcess(1); // Tx side
+        m_deviceMIMOEngine->stopProcess(0); // Rx side
+    }
+}
+
+void RemoveDeviceSetFSM::removeSink()
+{
+    qDebug() << "RemoveDeviceSetFSM::removeSink";
+    if (m_deviceSourceEngine) {
+        m_deviceSourceEngine->removeSink(m_deviceUISet->m_spectrumVis, false);
+    } else if (m_deviceSinkEngine) {
+        m_deviceSinkEngine->removeSpectrumSink(m_deviceUISet->m_spectrumVis);
+    } else {
+        m_deviceMIMOEngine->removeSpectrumSink(m_deviceUISet->m_spectrumVis);
+    }
+}
+
+void RemoveDeviceSetFSM::removeUI()
+{
+    qDebug() << "RemoveDeviceSetFSM::removeUI";
+    m_mainWindow->m_connectionOverlayRefreshTimer.stop();
+
+    // Remove transitions, as we will delete the object (DSPDevice*Engine) that is the source of these signals
+    m_states[0]->removeTransition(m_t1);
+    delete m_t1;
+    m_t1 = nullptr;
+    m_states[1]->removeTransition(m_t2);
+    delete m_t2;
+    m_t2 = nullptr;
+
+    m_deviceUISet->freeChannels();      // destroys the channel instances
+    if (m_deviceSourceEngine) {
+        m_deviceUISet->m_deviceAPI->getSampleSource()->setMessageQueueToGUI(nullptr); // have source stop sending messages to the GUI
+    } else if (m_deviceSinkEngine) {
+        m_deviceUISet->m_deviceAPI->getSampleSink()->setMessageQueueToGUI(nullptr); // have sink stop sending messages to the GUI
+    } else {
+        m_deviceUISet->m_deviceAPI->getSampleMIMO()->setMessageQueueToGUI(nullptr); // have sink stop sending messages to the GUI
+    }
+    // As for features: QObject only drops an object's connections in ~QObject, so a signal can
+    // still reach the GUI after the derived destructor has deleted its ui object.
+    DeviceGUI *deviceGUI = m_deviceUISet->m_deviceGUI;
+    m_deviceUISet->m_deviceGUI = nullptr;
+    QObject::disconnect(m_deviceUISet->m_deviceAPI, nullptr, deviceGUI, nullptr);
+    delete deviceGUI;
+    m_deviceUISet->m_deviceAPI->resetSamplingDeviceId();
+    // Buddy lists are cleared in removeDeviceSet(), after the sample source/sink is deleted (#2721).
+}
+
+void RemoveDeviceSetFSM::stopEngine()
+{
+    qDebug() << "RemoveDeviceSetFSM::stopEngine";
+    QThread *thread = m_mainWindow->m_dspEngine->getDeviceEngineThread(m_deviceSetIndex);
+
+    if (thread)
+    {
+        bool finished = thread->isFinished();
+
+        if (!finished) {
+            connect(thread, &QThread::finished, m_mainWindow, &MainWindow::engineStopped);
+        }
+        m_mainWindow->m_dspEngine->removeDeviceEngineAt(m_deviceSetIndex);
+        if (finished) {
+            emit m_mainWindow->engineStopped();
+        }
+    }
+    else
+    {
+        emit m_mainWindow->engineStopped();
+    }
+}
+
+void RemoveDeviceSetFSM::removeDeviceSet()
+{
+    if (m_deviceSourceEngine) {
+        DeviceEnumerator::instance()->removeRxSelection(m_deviceSetIndex);
+    } else if (m_deviceSinkEngine) {
+        DeviceEnumerator::instance()->removeTxSelection(m_deviceSetIndex);
+    } else {
+        DeviceEnumerator::instance()->removeMIMOSelection(m_deviceSetIndex);
+    }
+
+    DeviceAPI *deviceAPI = m_deviceUISet->m_deviceAPI;
+    delete m_deviceUISet;
+    if (m_deviceSourceEngine)
+    {
+        delete deviceAPI->getSampleSource();
+        deviceAPI->clearBuddiesLists(); // after the delete, so closeDevice() still saw its buddies (#2721)
+        delete m_deviceSourceEngine;
+    }
+    else if (m_deviceSinkEngine)
+    {
+        delete deviceAPI->getSampleSink();
+        deviceAPI->clearBuddiesLists(); // after the delete, so closeDevice() still saw its buddies (#2721)
+        delete m_deviceSinkEngine;
+    }
+    else
+    {
+        delete deviceAPI->getSampleMIMO();
+        delete m_deviceMIMOEngine;
+    }
+    delete deviceAPI;
+
+    m_mainWindow->m_deviceUIs.erase(m_mainWindow->m_deviceUIs.begin() + m_deviceSetIndex);
+    m_mainWindow->m_mainCore->removeDeviceSet(m_deviceSetIndex);
+    DeviceEnumerator::instance()->renumeratetabIndex(m_deviceSetIndex);
+
+    // Renumerate
+    for (int i = 0; i < (int) m_mainWindow->m_deviceUIs.size(); i++)
+    {
+        DeviceUISet *xDeviceUISet = m_mainWindow->m_deviceUIs[i];
+        xDeviceUISet->setIndex(i);
+        const DeviceGUI *deviceGUI = m_mainWindow->m_deviceUIs[i]->m_deviceGUI;
+        Workspace *deviceWorkspace = m_mainWindow->m_workspaces[deviceGUI->getWorkspaceIndex()];
+
+        QObject::disconnect(
+            deviceGUI,
+            &DeviceGUI::addChannelEmitted,
+            this,
+            nullptr
+        );
+        QObject::connect(
+            deviceGUI,
+            &DeviceGUI::addChannelEmitted,
+            this,
+            [this, deviceWorkspace, i](int channelPluginIndex){ m_mainWindow->channelAddClicked(deviceWorkspace, i, channelPluginIndex); }
+        );
+    }
+
+    if (m_mainWindow->m_connectionOverlayEnabled)
+    {
+        m_mainWindow->updateConnectionOverlays();
+        m_mainWindow->m_connectionOverlayRefreshTimer.start();
+    }
+    emit m_mainWindow->m_mainCore->deviceSetRemoved(m_deviceSetIndex);
+}
+
+RemoveAllDeviceSetsFSM::RemoveAllDeviceSetsFSM(MainWindow *mainWindow, QObject *parent) :
+    MainWindowFSM(mainWindow, parent)
+{
+    // Create FSM
+    createStates(2);
+
+    m_states[0]->addTransition(m_mainWindow->m_mainCore, &MainCore::deviceSetRemoved, m_states[0]);
+    m_states[0]->addTransition(m_mainWindow, &MainWindow::allDeviceSetsRemoved, m_finalState);
+
+    connect(m_states[0], &QState::entered, this, &RemoveAllDeviceSetsFSM::removeNext);
+}
+
+void RemoveAllDeviceSetsFSM::removeNext()
+{
+    qDebug() << "RemoveAllDeviceSetsFSM::removeNext";
+    if (m_mainWindow->m_deviceUIs.size() > 0) {
+        m_mainWindow->removeDeviceSet(m_mainWindow->m_deviceUIs.size() - 1);
+    } else {
+        emit m_mainWindow->allDeviceSetsRemoved();
+    }
+}
+
+RemoveAllWorkspacesFSM::RemoveAllWorkspacesFSM(MainWindow *mainWindow, QObject *parent) :
+    MainWindowFSM(mainWindow, parent)
+{
+    // Create FSM
+    createStates(3);
+
+    m_removeAllDeviceSetsFSM = new RemoveAllDeviceSetsFSM(m_mainWindow, this);
+
+    m_states[0]->addTransition(m_removeAllDeviceSetsFSM, &RemoveAllDeviceSetsFSM::finished, m_states[1]);
+    m_states[1]->addTransition(m_finalState);
+
+    connect(m_states[0], &QState::entered, this, &RemoveAllWorkspacesFSM::removeDeviceSets);
+    connect(m_states[1], &QState::entered, this, &RemoveAllWorkspacesFSM::removeWorkspaces);
+}
+
+void RemoveAllWorkspacesFSM::removeDeviceSets()
+{
+    qDebug() << "RemoveAllWorkspacesFSM::removeDeviceSets";
+    m_mainWindow->setConnectionOverlayEnabled(false);
+    m_removeAllDeviceSetsFSM->start();
+}
+
+void RemoveAllWorkspacesFSM::removeWorkspaces()
+{
+    qDebug() << "RemoveAllWorkspacesFSM::removeWorkspaces";
+    // Features
+    m_mainWindow->m_featureUIs[0]->freeFeatures();
+    // Workspaces
+    for (const auto& workspace : m_mainWindow->m_workspaces) {
+        delete workspace;
+    }
+    m_mainWindow->m_workspaces.clear();
+    qDebug() << "RemoveAllWorkspacesFSM::removeWorkspaces done";
+}
+
+LoadConfigurationFSM::LoadConfigurationFSM(MainWindow *mainWindow, const Configuration *configuration, QProgressDialog *waitBox, QObject *parent) :
+    MainWindowFSM(mainWindow, parent),
+    m_configuration(configuration),
+    m_overlayEnabledBeforeLoad(mainWindow->m_connectionOverlayEnabled),
+    m_waitBox(waitBox)
+{
+    // Create FSM
+    createStates(7);
+
+    m_removeAllWorkspacesFSM = new RemoveAllWorkspacesFSM(m_mainWindow, this);
+
+    m_states[0]->addTransition(m_removeAllWorkspacesFSM, &RemoveAllWorkspacesFSM::finished, m_states[1]);
+    m_states[1]->addTransition(m_states[2]);
+    m_states[2]->addTransition(m_mainWindow, &MainWindow::allDeviceSetsAdded, m_states[3]);
+    m_states[3]->addTransition(m_states[4]);
+    m_states[4]->addTransition(m_states[5]);
+    m_states[5]->addTransition(m_finalState);
+
+    connect(m_states[0], &QState::entered, this, &LoadConfigurationFSM::clearWorkspace);
+    connect(m_states[1], &QState::entered, this, &LoadConfigurationFSM::createWorkspaces);
+    connect(m_states[2], &QState::entered, this, &LoadConfigurationFSM::loadDeviceSets);
+    connect(m_states[3], &QState::entered, this, &LoadConfigurationFSM::loadDeviceSetSettings);
+    connect(m_states[4], &QState::entered, this, &LoadConfigurationFSM::loadFeatureSets);
+    connect(m_states[5], &QState::entered, this, &LoadConfigurationFSM::restoreGeometry);
+}
+
+void LoadConfigurationFSM::clearWorkspace()
+{
+    qDebug() << "LoadConfigurationFSM::clearWorkspace";
+
+    if (m_waitBox)
+    {
+        m_waitBox->setLabelText("Deleting existing...");
+        m_waitBox->setValue(5);
+    }
+
+    m_removeAllWorkspacesFSM->start();
+}
+
+void LoadConfigurationFSM::createWorkspaces()
+{
+    qDebug() << "LoadConfigurationFSM::createWorkspaces";
+
+    if (m_waitBox)
+    {
+        m_waitBox->setLabelText("Creating workspaces...");
+        m_waitBox->setValue(20);
+    }
+
+    // Workspaces
+    for (int i = 0; i < m_configuration->getNumberOfWorkspaceGeometries(); i++)
+    {
+        m_mainWindow->addWorkspace();
+        m_mainWindow->m_workspaces[i]->setAutoStackOption(m_configuration->getWorkspaceAutoStackOptions()[i]);
+        m_mainWindow->m_workspaces[i]->setTabSubWindowsOption(m_configuration->getWorkspaceTabSubWindowsOptions()[i]);
+    }
+    }
+
+void LoadConfigurationFSM::loadDeviceSets()
+{
+    qDebug() << "LoadConfigurationFSM::loadDeviceSets";
+
+    if (m_waitBox)
+    {
+        m_waitBox->setLabelText("Loading device sets...");
+        m_waitBox->setValue(25);
+    }
+
+    const QList<Preset>& deviceSetPresets = m_configuration->getDeviceSetPresets();
+
+    // State machine that runs all of the individual AddSampleSourceFSM, AddSampleSinkFSM, AddSampleMIMOFSMs
+    QStateMachine *m_addDevicesFSM = new QStateMachine();
+    QState *sInitial = nullptr;
+    QState *sPrev = nullptr;
+    QFinalState *sFinal = new QFinalState();
+
+    connect(m_addDevicesFSM, &QStateMachine::finished, this, [=](){
+        // Wait slighter longer than the 100ms timer used in Device GUI sendSettings, so we know devices should be initialised
+        QTimer::singleShot(250, [this] {
+            emit m_mainWindow->allDeviceSetsAdded();
+        });
+    });
+    connect(m_addDevicesFSM, &QStateMachine::finished, m_addDevicesFSM, &QStateMachine::deleteLater);
+
+    for (const auto& deviceSetPreset : deviceSetPresets)
+    {
+        MainWindowFSM *fsm = nullptr;
+        int deviceWorkspaceIndex = deviceSetPreset.getDeviceWorkspaceIndex() < m_mainWindow->m_workspaces.size() ?
+            deviceSetPreset.getDeviceWorkspaceIndex() :
+            0;
+        int spectrumWorkspaceIndex = deviceSetPreset.getSpectrumWorkspaceIndex() < m_mainWindow->m_workspaces.size() ?
+            deviceSetPreset.getSpectrumWorkspaceIndex() :
+            deviceWorkspaceIndex;
+
+        if (deviceSetPreset.isSourcePreset())
+        {
+            int bestDeviceIndex = DeviceEnumerator::instance()->getBestRxSamplingDeviceIndex(
+                deviceSetPreset.getSelectedDevice().m_deviceId,
+                deviceSetPreset.getSelectedDevice().m_deviceSerial,
+                deviceSetPreset.getSelectedDevice().m_deviceSequence,
+                deviceSetPreset.getSelectedDevice().m_deviceItemIndex
+            );
+            qDebug("MainWindow::loadConfiguration: add source %s in workspace %d spectrum in %d",
+                qPrintable(deviceSetPreset.getSelectedDevice().m_deviceId),
+                deviceSetPreset.getDeviceWorkspaceIndex(),
+                deviceSetPreset.getSpectrumWorkspaceIndex());
+
+            fsm = new AddSampleSourceFSM(m_mainWindow,
+                m_mainWindow->m_workspaces[deviceWorkspaceIndex],
+                m_mainWindow->m_workspaces[spectrumWorkspaceIndex],
+                bestDeviceIndex, false, m_addDevicesFSM);
+        }
+        else if (deviceSetPreset.isSinkPreset())
+        {
+            int bestDeviceIndex = DeviceEnumerator::instance()->getBestTxSamplingDeviceIndex(
+                deviceSetPreset.getSelectedDevice().m_deviceId,
+                deviceSetPreset.getSelectedDevice().m_deviceSerial,
+                deviceSetPreset.getSelectedDevice().m_deviceSequence,
+                deviceSetPreset.getSelectedDevice().m_deviceItemIndex
+            );
+            qDebug("MainWindow::loadConfiguration: add sink %s in workspace %d spectrum in %d",
+                qPrintable(deviceSetPreset.getSelectedDevice().m_deviceId),
+                deviceSetPreset.getDeviceWorkspaceIndex(),
+                deviceSetPreset.getSpectrumWorkspaceIndex());
+
+            fsm = new AddSampleSinkFSM(m_mainWindow,
+                m_mainWindow->m_workspaces[deviceWorkspaceIndex],
+                m_mainWindow->m_workspaces[spectrumWorkspaceIndex],
+                bestDeviceIndex, false, m_addDevicesFSM);
+        }
+        else if (deviceSetPreset.isMIMOPreset())
+        {
+            int bestDeviceIndex = DeviceEnumerator::instance()->getBestMIMOSamplingDeviceIndex(
+                deviceSetPreset.getSelectedDevice().m_deviceId,
+                deviceSetPreset.getSelectedDevice().m_deviceSerial,
+                deviceSetPreset.getSelectedDevice().m_deviceSequence
+            );
+            qDebug("MainWindow::loadConfiguration: add MIMO %s in workspace %d spectrum in %d",
+                qPrintable(deviceSetPreset.getSelectedDevice().m_deviceId),
+                deviceSetPreset.getDeviceWorkspaceIndex(),
+                deviceSetPreset.getSpectrumWorkspaceIndex());
+
+            fsm = new AddSampleMIMOFSM(m_mainWindow,
+                m_mainWindow->m_workspaces[deviceWorkspaceIndex],
+                m_mainWindow->m_workspaces[spectrumWorkspaceIndex],
+                bestDeviceIndex, false, m_addDevicesFSM);
+        }
+        else
+        {
+            qDebug() << "MainWindow::loadConfiguration: Unknown preset type: " << deviceSetPreset.getPresetType();
+        }
+
+        // Chain the FSMs together
+        if (fsm)
+        {
+            m_addDevicesFSM->addState(fsm);
+
+            if (!sInitial) {
+                sInitial = fsm;
+            }
+            if (sPrev) {
+                sPrev->addTransition(sPrev, &QState::finished, fsm);
+            }
+            sPrev = fsm;
+        }
+    }
+
+    m_addDevicesFSM->addState(sFinal);
+    if (sPrev)
+    {
+        m_addDevicesFSM->setInitialState(sInitial);
+        sPrev->addTransition(sPrev, &QState::finished, sFinal);
+    }
+    else
+    {
+        m_addDevicesFSM->setInitialState(sFinal);
+    }
+    // Run all the FSMs
+    m_addDevicesFSM->start();
+}
+
+void LoadConfigurationFSM::loadDeviceSetSettings()
+{
+    qDebug() << "LoadConfigurationFSM::loadDeviceSetSettings";
+
+    if (m_waitBox)
+    {
+        m_waitBox->setLabelText("Loading device set settings...");
+        m_waitBox->setValue(70);
+    }
+
+    const QList<Preset>& deviceSetPresets = m_configuration->getDeviceSetPresets();
+
+    int deviceSetIndex = 0;
+    for (const auto& deviceSetPreset : deviceSetPresets)
+    {
+        if (((int) m_mainWindow->m_deviceUIs.size()) > deviceSetIndex)
+        {
+            MDIUtils::restoreMDIGeometry(m_mainWindow->m_deviceUIs[deviceSetIndex]->m_deviceGUI, deviceSetPreset.getDeviceGeometry());
+            MDIUtils::restoreMDIGeometry(m_mainWindow->m_deviceUIs[deviceSetIndex]->m_mainSpectrumGUI, deviceSetPreset.getSpectrumGeometry());
+            m_mainWindow->m_deviceUIs[deviceSetIndex]->loadDeviceSetSettings(&deviceSetPreset, m_mainWindow->m_pluginManager->getPluginAPI(), &m_mainWindow->m_workspaces, nullptr);
+            deviceSetIndex++;
+        }
+    }
+}
+
+void LoadConfigurationFSM::loadFeatureSets()
+{
+    qDebug() << "LoadConfigurationFSM::loadFeatureSets";
+
+    if (m_waitBox)
+    {
+        m_waitBox->setLabelText("Loading feature sets...");
+        m_waitBox->setValue(75);
+    }
+
+    m_mainWindow->m_featureUIs[0]->loadFeatureSetSettings(
+        &m_configuration->getFeatureSetPreset(),
+        m_mainWindow->m_pluginManager->getPluginAPI(),
+        m_mainWindow->m_apiAdapter,
+        &m_mainWindow->m_workspaces,
+        nullptr
+    );
+
+    for (int i = 0; i < m_mainWindow->m_featureUIs[0]->getNumberOfFeatures(); i++)
+    {
+        FeatureGUI *gui = m_mainWindow->m_featureUIs[0]->getFeatureGuiAt(i);
+        QObject::connect(
+            gui,
+            &FeatureGUI::moveToWorkspace,
+            m_mainWindow,
+            [m_mainWindow=m_mainWindow, gui](int wsIndexDest){ m_mainWindow->featureMove(gui, wsIndexDest); }
+        );
+    }
+}
+
+void LoadConfigurationFSM::restoreGeometry()
+{
+    qDebug() << "LoadConfigurationFSM::restoreGeometry";
+
+    // Lastly restore workspaces geometry
+    if (m_waitBox)
+    {
+        m_waitBox->setValue(90);
+        m_waitBox->setLabelText("Finalizing...");
+    }
+
+    for (int i = 0; i < m_configuration->getNumberOfWorkspaceGeometries(); i++)
+    {
+        m_mainWindow->m_workspaces[i]->restoreGeometry(m_configuration->getWorkspaceGeometries()[i]);
+        m_mainWindow->m_workspaces[i]->restoreGeometry(m_configuration->getWorkspaceGeometries()[i]);
+        m_mainWindow->m_workspaces[i]->adjustSubWindowsAfterRestore();
+#ifdef ANDROID
+        // On Android, workspaces seem to be restored to 0,20, rather than 0,0
+        m_mainWindow->m_workspaces[i]->move(m_mainWindow->m_workspaces[i]->pos().x(), 0);
+        // Need to call updateGeometry, otherwise sometimes the layout is corrupted
+        m_mainWindow->m_workspaces[i]->updateGeometry();
+#endif
+        if (m_mainWindow->m_workspaces[i]->getAutoStackOption()) {
+            m_mainWindow->m_workspaces[i]->layoutSubWindows();
+        }
+    }
+
+    if (m_waitBox) {
+        m_waitBox->setValue(100);
+    }
+    // Re-enable only now, so the refresh timer doesn't walk device sets while they are being created.
+    m_mainWindow->setConnectionOverlayEnabled(m_overlayEnabledBeforeLoad);
+}
+
+InitFSM::InitFSM(MainWindow *mainWindow, SDRangelSplash *splash, bool loadDefault, bool showConfigs, QObject *parent) :
+    MainWindowFSM(mainWindow, parent),
+    m_splash(splash),
+    m_showConfigs(showConfigs),
+    m_loadConfigurationFSM(nullptr)
+{
+    // Create FSM
+    createStates(2);
+
+    if (loadDefault)
+    {
+        m_loadConfigurationFSM = new LoadConfigurationFSM(m_mainWindow, m_mainWindow->m_mainCore->getMutableSettings().getWorkingConfiguration(), nullptr, this);
+
+        m_states[0]->addTransition(m_loadConfigurationFSM, &LoadConfigurationFSM::finished, m_finalState);
+
+        connect(m_states[0], &QState::entered, this, &InitFSM::loadDefaultConfiguration);
+    }
+    else
+    {
+        m_states[0]->addTransition(m_finalState);
+    }
+    connect(m_finalState, &QState::entered, this, &InitFSM::showDefaultConfigurations);
+}
+
+void InitFSM::loadDefaultConfiguration()
+{
+    m_splash->showStatusMessage("load current configuration...", Qt::white);
+    qDebug() << "MainWindow::MainWindow: load current configuration...";
+    m_loadConfigurationFSM->start();
+}
+
+void InitFSM::showDefaultConfigurations()
+{
+    QApplication::restoreOverrideCursor();
+    //m_mainWindow->show();
+
+    if (m_mainWindow->m_workspaces.size() == 0)
+    {
+        qDebug() << "MainWindow::MainWindow: no or empty current configuration, creating empty workspace...";
+        m_mainWindow->addWorkspace();
+
+        if (m_showConfigs)
+        {
+            // If no configurations, load some basic examples
+            if (m_mainWindow->m_mainCore->getMutableSettings().getConfigurations()->size() == 0) {
+                m_mainWindow->loadDefaultConfigurations();
+            }
+#if defined(ANDROID) || defined(__EMSCRIPTEN__)
+            // Show welcome dialog
+            m_mainWindow->on_action_Welcome_triggered();
+#endif
+            // Show configurations
+            m_mainWindow->openConfigurationDialog(true);
+        }
+    }
+}
+
+CloseFSM::CloseFSM(MainWindow *mainWindow, QObject *parent) :
+    MainWindowFSM(mainWindow, parent)
+{
+    // Create FSM
+    createStates(2);
+
+    m_states[0]->addTransition(m_mainWindow, &MainWindow::allDeviceSetsRemoved, m_finalState);
+
+    connect(this, &QStateMachine::started, this, &CloseFSM::on_started);
+    connect(this, &QStateMachine::finished, this, &CloseFSM::on_finished);
+}
+
+void CloseFSM::on_started()
+{
+    m_mainWindow->removeAllDeviceSets();
+}
+
+void CloseFSM::on_finished()
+{
+    m_mainWindow->close();
+}
+
+void MainWindow::sampleSourceAdd(Workspace *deviceWorkspace, Workspace *spectrumWorkspace, int deviceIndex)
+{
+    AddSampleSourceFSM *fsm = new AddSampleSourceFSM(this, deviceWorkspace, spectrumWorkspace, deviceIndex, true);
+    connect(fsm, &AddSampleSourceFSM::finished, fsm, &AddSampleSourceFSM::deleteLater);
+    fsm->start();
+}
+
+void MainWindow::sampleSourceCreate(
+    int deviceSetIndex,
+    int& deviceIndex,
+    DeviceUISet *deviceUISet
+)
+{
+    DeviceAPI *deviceAPI = deviceUISet->m_deviceAPI;
+    DeviceEnumerator::instance()->changeRxSelection(deviceSetIndex, deviceIndex);
+    const PluginInterface::SamplingDevice *samplingDevice = DeviceEnumerator::instance()->getRxSamplingDevice(deviceIndex);
+    deviceAPI->setSamplingDeviceSequence(samplingDevice->sequence);
+    deviceAPI->setDeviceNbItems(samplingDevice->deviceNbItems);
+    deviceAPI->setDeviceItemIndex(samplingDevice->deviceItemIndex);
+    deviceAPI->setHardwareId(samplingDevice->hardwareId);
+    deviceAPI->setSamplingDeviceId(samplingDevice->id);
+    deviceAPI->setSamplingDeviceSerial(samplingDevice->serial);
+    deviceAPI->setSamplingDeviceDisplayName(samplingDevice->displayedName);
+    deviceAPI->setSamplingDevicePluginInterface(DeviceEnumerator::instance()->getRxPluginInterface(deviceIndex));
+
+    qDebug() << "MainWindow::sampleSourceCreate:"
+        << "deviceSetIndex:" << deviceSetIndex
+        << "deviceIndex:" << deviceIndex
+        << "hardwareId:" << samplingDevice->hardwareId
+        << "sequence:" << samplingDevice->sequence
+        << "id:" << samplingDevice->id
+        << "serial:" << samplingDevice->serial
+        << "displayedName:" << samplingDevice->displayedName;
+
+    if (deviceAPI->getSamplingDeviceId().size() == 0) // non existent device => replace by default
+    {
+        qDebug("MainWindow::sampleSourceCreate: non existent device replaced by File Input");
+        int fileInputDeviceIndex = DeviceEnumerator::instance()->getFileInputDeviceIndex();
+        deviceIndex = fileInputDeviceIndex;
+        samplingDevice = DeviceEnumerator::instance()->getRxSamplingDevice(fileInputDeviceIndex);
+        deviceAPI->setSamplingDeviceSequence(samplingDevice->sequence);
+        deviceAPI->setDeviceNbItems(samplingDevice->deviceNbItems);
+        deviceAPI->setDeviceItemIndex(samplingDevice->deviceItemIndex);
+        deviceAPI->setHardwareId(samplingDevice->hardwareId);
+        deviceAPI->setSamplingDeviceId(samplingDevice->id);
+        deviceAPI->setSamplingDeviceSerial(samplingDevice->serial);
+        deviceAPI->setSamplingDeviceDisplayName(samplingDevice->displayedName);
+        deviceAPI->setSamplingDevicePluginInterface(DeviceEnumerator::instance()->getRxPluginInterface(fileInputDeviceIndex));
+    }
+
+    QString userArgs = m_mainCore->m_settings.getDeviceUserArgs().findUserArgs(samplingDevice->hardwareId, samplingDevice->sequence);
+
+    if (userArgs.size() > 0) {
+        deviceAPI->setHardwareUserArguments(userArgs);
+    }
+
+    // add to buddies list
+    auto it = m_deviceUIs.begin();
+    int nbOfBuddies = 0;
+
+    for (; it != m_deviceUIs.end(); ++it)
+    {
+        if ((*it != deviceUISet) && // do not add to itself
+            (deviceUISet->m_deviceAPI->getHardwareId() == (*it)->m_deviceAPI->getHardwareId()) &&
+            (deviceUISet->m_deviceAPI->getSamplingDeviceSerial() == (*it)->m_deviceAPI->getSamplingDeviceSerial()))
+        {
+            (*it)->m_deviceAPI->addBuddy(deviceUISet->m_deviceAPI);
+            nbOfBuddies++;
+        }
+    }
+
+    if (nbOfBuddies == 0) {
+        deviceUISet->m_deviceAPI->setBuddyLeader(true);
+    }
+
+    // constructs new GUI and input object
+    DeviceSampleSource *source = deviceAPI->getPluginInterface()->createSampleSourcePluginInstance(
+            deviceAPI->getSamplingDeviceId(), deviceAPI);
+    deviceAPI->setSampleSource(source);
+}
+
+void MainWindow::sampleSourceCreateUI(
+    int deviceSetIndex,
+    int deviceIndex,
+    DeviceUISet *deviceUISet
+)
+{
+    DeviceAPI *deviceAPI = deviceUISet->m_deviceAPI;
+    QWidget *gui;
+    DeviceGUI *deviceGUI = deviceAPI->getPluginInterface()->createSampleSourcePluginInstanceGUI(
+            deviceAPI->getSamplingDeviceId(),
+            &gui,
+            deviceUISet
+        );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::moveToWorkspace,
+        this,
+        [this, deviceGUI](int wsIndexDest){ this->deviceMove(deviceGUI, wsIndexDest); }
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::deviceChange,
+        this,
+        [this, deviceGUI](int newDeviceIndex){ this->samplingDeviceChangeHandler(deviceGUI, newDeviceIndex); }
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::showSpectrum,
+        this,
+        &MainWindow::mainSpectrumShow
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::showAllChannels,
+        this,
+        &MainWindow::showAllChannels
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::closing,
+        this,
+        [this, deviceGUI](){ this->removeDeviceSet(deviceGUI->getIndex()); }
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::deviceSetPresetsDialogRequested,
+        this,
+        &MainWindow::openDeviceSetPresetsDialog
+    );
+
+    deviceAPI->getSampleSource()->setMessageQueueToGUI(deviceGUI->getInputMessageQueue());
+    deviceUISet->m_deviceGUI = deviceGUI;
+    deviceGUI->setWindowOwner(deviceAPI);
+    const PluginInterface::SamplingDevice *samplingDevice = DeviceEnumerator::instance()->getRxSamplingDevice(deviceIndex);
+    const PluginInterface::SamplingDevice *selectedDevice = DeviceEnumerator::instance()->getRxSamplingDevice(deviceIndex); // FIXME: Why not use samplingDevice?
+    deviceUISet->m_selectedDeviceId = selectedDevice->id;
+    deviceUISet->m_selectedDeviceSerial = selectedDevice->serial;
+    deviceUISet->m_selectedDeviceSequence = selectedDevice->sequence;
+    deviceUISet->m_selectedDeviceItemImdex = selectedDevice->deviceItemIndex;
+    deviceUISet->m_deviceAPI->getSampleSource()->init();
+    // Finalize GUI setup and add it to workspace MDI
+    deviceGUI->setDeviceType(DeviceGUI::DeviceRx);
+    deviceGUI->setIndex(deviceSetIndex);
+    deviceGUI->setToolTip(samplingDevice->displayedName);
+    deviceGUI->setTitle(samplingDevice->displayedName.split(" ")[0]);
+    deviceGUI->setDefaultTitle(samplingDevice->displayedName.split(" ")[0]);
+    deviceGUI->setCurrentDeviceIndex(deviceIndex);
+    QStringList channelNames;
+    m_pluginManager->listRxChannels(channelNames);
+    deviceGUI->setChannelNames(channelNames);
+    MainSpectrumGUI *mainSpectrumGUI = deviceUISet->m_mainSpectrumGUI;
+    mainSpectrumGUI->setDeviceType(MainSpectrumGUI::DeviceRx);
+    mainSpectrumGUI->setIndex(deviceSetIndex);
+    mainSpectrumGUI->setToolTip(samplingDevice->displayedName);
+    mainSpectrumGUI->setTitle(samplingDevice->displayedName.split(" ")[0]);
+}
+
+void MainWindow::sampleSinkAdd(Workspace *deviceWorkspace, Workspace *spectrumWorkspace, int deviceIndex)
+{
+    AddSampleSinkFSM *fsm = new AddSampleSinkFSM(this, deviceWorkspace, spectrumWorkspace, deviceIndex, true);
+    connect(fsm, &AddSampleSinkFSM::finished, fsm, &AddSampleSinkFSM::deleteLater);
+    fsm->start();
+    }
+
+void MainWindow::sampleSinkCreate(
+        int deviceSetIndex,
+        int& deviceIndex,
+        DeviceUISet *deviceUISet
+)
+{
+    DeviceAPI *deviceAPI = deviceUISet->m_deviceAPI;
+    DeviceEnumerator::instance()->changeTxSelection(deviceSetIndex, deviceIndex);
+    const PluginInterface::SamplingDevice *samplingDevice = DeviceEnumerator::instance()->getTxSamplingDevice(deviceIndex);
+    deviceAPI->setSamplingDeviceSequence(samplingDevice->sequence);
+    deviceAPI->setDeviceNbItems(samplingDevice->deviceNbItems);
+    deviceAPI->setDeviceItemIndex(samplingDevice->deviceItemIndex);
+    deviceAPI->setHardwareId(samplingDevice->hardwareId);
+    deviceAPI->setSamplingDeviceId(samplingDevice->id);
+    deviceAPI->setSamplingDeviceSerial(samplingDevice->serial);
+    deviceAPI->setSamplingDeviceDisplayName(samplingDevice->displayedName);
+    deviceAPI->setSamplingDevicePluginInterface(DeviceEnumerator::instance()->getTxPluginInterface(deviceIndex));
+
+    qDebug() << "MainWindow::sampleSinkCreate:"
+        << "deviceSetIndex:" << deviceSetIndex
+        << "newDeviceIndex:" << deviceIndex
+        << "hardwareId:" << samplingDevice->hardwareId
+        << "sequence:" << samplingDevice->sequence
+        << "id:" << samplingDevice->id
+        << "serial:" << samplingDevice->serial
+        << "displayedName:" << samplingDevice->displayedName;
+
+    if (deviceAPI->getSamplingDeviceId().size() == 0) // non existent device => replace by default
+    {
+        qDebug("MainWindow::sampleSinkCreate: non existent device replaced by File Sink");
+        int fileSinkDeviceIndex = DeviceEnumerator::instance()->getFileOutputDeviceIndex();
+        deviceIndex = fileSinkDeviceIndex;
+        samplingDevice = DeviceEnumerator::instance()->getTxSamplingDevice(fileSinkDeviceIndex);
+        deviceAPI->setSamplingDeviceSequence(samplingDevice->sequence);
+        deviceAPI->setDeviceNbItems(samplingDevice->deviceNbItems);
+        deviceAPI->setDeviceItemIndex(samplingDevice->deviceItemIndex);
+        deviceAPI->setHardwareId(samplingDevice->hardwareId);
+        deviceAPI->setSamplingDeviceId(samplingDevice->id);
+        deviceAPI->setSamplingDeviceSerial(samplingDevice->serial);
+        deviceAPI->setSamplingDeviceDisplayName(samplingDevice->displayedName);
+        deviceAPI->setSamplingDevicePluginInterface(DeviceEnumerator::instance()->getTxPluginInterface(fileSinkDeviceIndex));
+    }
+
+    QString userArgs = m_mainCore->m_settings.getDeviceUserArgs().findUserArgs(samplingDevice->hardwareId, samplingDevice->sequence);
+
+    if (userArgs.size() > 0) {
+        deviceAPI->setHardwareUserArguments(userArgs);
+    }
+
+    // add to buddies list
+    auto it = m_deviceUIs.begin();
+    int nbOfBuddies = 0;
+
+    for (; it != m_deviceUIs.end(); ++it)
+    {
+        if ((*it != deviceUISet) && // do not add to itself
+            (deviceAPI->getHardwareId() == (*it)->m_deviceAPI->getHardwareId()) &&
+            (deviceAPI->getSamplingDeviceSerial() == (*it)->m_deviceAPI->getSamplingDeviceSerial()))
+        {
+            (*it)->m_deviceAPI->addBuddy(deviceAPI);
+            nbOfBuddies++;
+        }
+    }
+
+    if (nbOfBuddies == 0) {
+        deviceAPI->setBuddyLeader(true);
+    }
+
+    // constructs new GUI and output object
+    DeviceSampleSink *sink = deviceAPI->getPluginInterface()->createSampleSinkPluginInstance(
+            deviceAPI->getSamplingDeviceId(), deviceAPI);
+    deviceAPI->setSampleSink(sink);
+}
+
+void MainWindow::sampleSinkCreateUI(
+        int deviceSetIndex,
+        int deviceIndex,
+        DeviceUISet *deviceUISet
+)
+{
+    DeviceAPI *deviceAPI = deviceUISet->m_deviceAPI;
+    QWidget *gui;
+    DeviceGUI *deviceGUI = deviceAPI->getPluginInterface()->createSampleSinkPluginInstanceGUI(
+            deviceAPI->getSamplingDeviceId(),
+            &gui,
+            deviceUISet
+        );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::moveToWorkspace,
+        this,
+        [this, deviceGUI](int wsIndexDest){ this->deviceMove(deviceGUI, wsIndexDest); }
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::deviceChange,
+        this,
+        [this, deviceGUI](int newDeviceIndex){ this->samplingDeviceChangeHandler(deviceGUI, newDeviceIndex); }
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::showSpectrum,
+        this,
+        &MainWindow::mainSpectrumShow
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::showAllChannels,
+        this,
+        &MainWindow::showAllChannels
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::closing,
+        this,
+        [this, deviceGUI](){ this->removeDeviceSet(deviceGUI->getIndex()); }
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::deviceSetPresetsDialogRequested,
+        this,
+        &MainWindow::openDeviceSetPresetsDialog
+    );
+
+    deviceAPI->getSampleSink()->setMessageQueueToGUI(deviceGUI->getInputMessageQueue());
+    deviceUISet->m_deviceGUI = deviceGUI;
+    deviceGUI->setWindowOwner(deviceAPI);
+    const PluginInterface::SamplingDevice *samplingDevice = DeviceEnumerator::instance()->getTxSamplingDevice(deviceIndex);
+    const PluginInterface::SamplingDevice *selectedDevice = DeviceEnumerator::instance()->getRxSamplingDevice(deviceIndex); // FIXME: Why getRxSamplingDevice?
+    deviceUISet->m_selectedDeviceId = selectedDevice->id;
+    deviceUISet->m_selectedDeviceSerial = selectedDevice->serial;
+    deviceUISet->m_selectedDeviceSequence = selectedDevice->sequence;
+    deviceUISet->m_selectedDeviceItemImdex = selectedDevice->deviceItemIndex;
+    deviceUISet->m_deviceAPI->getSampleSink()->init();
+    // Finalize GUI setup and add it to workspace MDI
+    deviceGUI->setDeviceType(DeviceGUI::DeviceTx);
+    deviceGUI->setIndex(deviceSetIndex);
+    deviceGUI->setToolTip(samplingDevice->displayedName);
+    deviceGUI->setTitle(samplingDevice->displayedName.split(" ")[0]);
+    deviceGUI->setDefaultTitle(samplingDevice->displayedName.split(" ")[0]);
+    deviceGUI->setCurrentDeviceIndex(deviceIndex);
+    QStringList channelNames;
+    m_pluginManager->listTxChannels(channelNames);
+    deviceGUI->setChannelNames(channelNames);
+    MainSpectrumGUI *spectrumGUI = deviceUISet->m_mainSpectrumGUI;
+    spectrumGUI->setDeviceType(MainSpectrumGUI::DeviceTx);
+    spectrumGUI->setIndex(deviceSetIndex);
+    spectrumGUI->setToolTip(samplingDevice->displayedName);
+    spectrumGUI->setTitle(samplingDevice->displayedName.split(" ")[0]);
+}
+
+void MainWindow::sampleMIMOAdd(Workspace *deviceWorkspace, Workspace *spectrumWorkspace, int deviceIndex)
+{
+    AddSampleMIMOFSM *fsm = new AddSampleMIMOFSM(this, deviceWorkspace, spectrumWorkspace, deviceIndex, true);
+    connect(fsm, &AddSampleMIMOFSM::finished, fsm, &AddSampleSinkFSM::deleteLater);
+    fsm->start();
+    }
+
+void MainWindow::sampleMIMOCreate(
+    int deviceSetIndex,
+    int& deviceIndex,
+    DeviceUISet *deviceUISet
+)
+{
+    DeviceAPI *deviceAPI = deviceUISet->m_deviceAPI;
+    DeviceEnumerator::instance()->changeMIMOSelection(deviceSetIndex, deviceIndex);
+    const PluginInterface::SamplingDevice *samplingDevice = DeviceEnumerator::instance()->getMIMOSamplingDevice(deviceIndex);
+    deviceAPI->setSamplingDeviceSequence(samplingDevice->sequence);
+    deviceAPI->setDeviceNbItems(samplingDevice->deviceNbItems);
+    deviceAPI->setDeviceItemIndex(samplingDevice->deviceItemIndex);
+    deviceAPI->setHardwareId(samplingDevice->hardwareId);
+    deviceAPI->setSamplingDeviceId(samplingDevice->id);
+    deviceAPI->setSamplingDeviceSerial(samplingDevice->serial);
+    deviceAPI->setSamplingDeviceDisplayName(samplingDevice->displayedName);
+    deviceAPI->setSamplingDevicePluginInterface(DeviceEnumerator::instance()->getMIMOPluginInterface(deviceIndex));
+
+    qDebug() << "MainWindow::sampleMIMOCreate:"
+        << "deviceSetIndex" << deviceSetIndex
+        << "newDeviceIndex:" << deviceIndex
+        << "hardwareId:" << samplingDevice->hardwareId
+        << "sequence:" << samplingDevice->sequence
+        << "id:" << samplingDevice->id
+        << "serial:" << samplingDevice->serial
+        << "displayedName:" << samplingDevice->displayedName;
+
+    if (deviceAPI->getSamplingDeviceId().size() == 0) // non existent device => replace by default
+    {
+        qDebug("MainWindow::sampleMIMOCreate: non existent device replaced by Test MIMO");
+        int testMIMODeviceIndex = DeviceEnumerator::instance()->getTestMIMODeviceIndex();
+        deviceIndex = testMIMODeviceIndex;
+        samplingDevice = DeviceEnumerator::instance()->getMIMOSamplingDevice(testMIMODeviceIndex);
+        deviceAPI->setSamplingDeviceSequence(samplingDevice->sequence);
+        deviceAPI->setDeviceNbItems(samplingDevice->deviceNbItems);
+        deviceAPI->setDeviceItemIndex(samplingDevice->deviceItemIndex);
+        deviceAPI->setHardwareId(samplingDevice->hardwareId);
+        deviceAPI->setSamplingDeviceId(samplingDevice->id);
+        deviceAPI->setSamplingDeviceSerial(samplingDevice->serial);
+        deviceAPI->setSamplingDeviceDisplayName(samplingDevice->displayedName);
+        deviceAPI->setSamplingDevicePluginInterface(DeviceEnumerator::instance()->getMIMOPluginInterface(testMIMODeviceIndex));
+    }
+
+    QString userArgs = m_mainCore->m_settings.getDeviceUserArgs().findUserArgs(samplingDevice->hardwareId, samplingDevice->sequence);
+
+    if (userArgs.size() > 0) {
+        deviceAPI->setHardwareUserArguments(userArgs);
+    }
+
+    // constructs new GUI and output object
+    DeviceSampleMIMO *mimo = deviceAPI->getPluginInterface()->createSampleMIMOPluginInstance(
+            deviceAPI->getSamplingDeviceId(), deviceAPI);
+    deviceAPI->setSampleMIMO(mimo);
+}
+
+void MainWindow::sampleMIMOCreateUI(
+    int deviceSetIndex,
+    int deviceIndex,
+    DeviceUISet *deviceUISet
+)
+{
+    DeviceAPI *deviceAPI = deviceUISet->m_deviceAPI;
+    QWidget *gui;
+    DeviceGUI *deviceGUI = deviceAPI->getPluginInterface()->createSampleMIMOPluginInstanceGUI(
+            deviceAPI->getSamplingDeviceId(),
+            &gui,
+            deviceUISet
+        );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::moveToWorkspace,
+        this,
+        [this, deviceGUI](int wsIndexDest){ this->deviceMove(deviceGUI, wsIndexDest); }
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::deviceChange,
+        this,
+        [this, deviceGUI](int newDeviceIndex){ this->samplingDeviceChangeHandler(deviceGUI, newDeviceIndex); }
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::showSpectrum,
+        this,
+        &MainWindow::mainSpectrumShow
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::showAllChannels,
+        this,
+        &MainWindow::showAllChannels
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::closing,
+        this,
+        [this, deviceGUI](){ this->removeDeviceSet(deviceGUI->getIndex()); }
+    );
+    QObject::connect(
+        deviceGUI,
+        &DeviceGUI::deviceSetPresetsDialogRequested,
+        this,
+        &MainWindow::openDeviceSetPresetsDialog
+    );
+
+    deviceAPI->getSampleMIMO()->setMessageQueueToGUI(deviceGUI->getInputMessageQueue());
+    deviceUISet->m_deviceGUI = deviceGUI;
+    deviceGUI->setWindowOwner(deviceAPI);
+    const PluginInterface::SamplingDevice *samplingDevice = DeviceEnumerator::instance()->getMIMOSamplingDevice(deviceIndex);
+    const PluginInterface::SamplingDevice *selectedDevice = DeviceEnumerator::instance()->getRxSamplingDevice(deviceIndex); // FIXME: Why getRxSamplingDevice?
+    deviceUISet->m_selectedDeviceId = selectedDevice->id;
+    deviceUISet->m_selectedDeviceSerial = selectedDevice->serial;
+    deviceUISet->m_selectedDeviceSequence = selectedDevice->sequence;
+    deviceUISet->m_selectedDeviceItemImdex = selectedDevice->deviceItemIndex;
+    deviceUISet->m_deviceAPI->getSampleMIMO()->init();
+    // Finalize GUI setup and add it to workspace MDI
+    deviceGUI->setDeviceType(DeviceGUI::DeviceMIMO);
+    deviceGUI->setIndex(deviceSetIndex);
+    deviceGUI->setToolTip(samplingDevice->displayedName);
+    deviceGUI->setTitle(samplingDevice->displayedName.split(" ")[0]);
+    deviceGUI->setDefaultTitle(samplingDevice->displayedName.split(" ")[0]);
+    deviceGUI->setCurrentDeviceIndex(deviceIndex);
+    QStringList channelNames;
+    QStringList tmpChannelNames;
+    m_pluginManager->listMIMOChannels(channelNames);
+    m_pluginManager->listRxChannels(tmpChannelNames);
+    channelNames.append(tmpChannelNames);
+    m_pluginManager->listTxChannels(tmpChannelNames);
+    channelNames.append(tmpChannelNames);
+    deviceGUI->setChannelNames(channelNames);
+    MainSpectrumGUI *spectrumGUI = deviceUISet->m_mainSpectrumGUI;
+    spectrumGUI->setDeviceType(MainSpectrumGUI::DeviceMIMO);
+    spectrumGUI->setIndex(deviceSetIndex);
+    spectrumGUI->setToolTip(samplingDevice->displayedName);
+    spectrumGUI->setTitle(samplingDevice->displayedName.split(" ")[0]);
+}
+
+void MainWindow::removeDeviceSet(int deviceSetIndex)
+{
+    qDebug("MainWindow::removeDeviceSet: index: %d", deviceSetIndex);
+    if (deviceSetIndex >= (int) m_deviceUIs.size()) {
+        return;
+    }
+
+    RemoveDeviceSetFSM *fsm = new RemoveDeviceSetFSM(this, deviceSetIndex);
+    connect(fsm, &RemoveDeviceSetFSM::finished, fsm, &RemoveDeviceSetFSM::deleteLater);
+    fsm->start();
+    }
+
+void MainWindow::removeAllDeviceSets()
+    {
+    qDebug() << "MainWindow::removeAllDeviceSets";
+    RemoveAllDeviceSetsFSM *fsm = new RemoveAllDeviceSetsFSM(this);
+    connect(fsm, &RemoveAllDeviceSetsFSM::finished, fsm, &RemoveAllDeviceSetsFSM::deleteLater);
+    fsm->start();
+    }
+
+void MainWindow::removeLastDeviceSet()
+{
+    if (m_deviceUIs.size() > 0)
+    {
+    qDebug("MainWindow::removeLastDeviceSet: %s", qPrintable(m_deviceUIs.back()->m_deviceAPI->getHardwareId()));
+        removeDeviceSet(m_deviceUIs.size() - 1);
 	}
-	else if (m_deviceUIs.back()->m_deviceSinkEngine) // sink tab
-	{
-	    DSPDeviceSinkEngine *lastDeviceEngine = m_deviceUIs.back()->m_deviceSinkEngine;
-	    lastDeviceEngine->stopGeneration();
-	    lastDeviceEngine->removeSpectrumSink(m_deviceUIs.back()->m_spectrumVis);
+}
 
-	    ui->tabSpectraGUI->removeTab(ui->tabSpectraGUI->count() - 1);
-	    ui->tabSpectra->removeTab(ui->tabSpectra->count() - 1);
+void MainWindow::addFeatureSet()
+{
+    auto newFeatureSetIndex = (int) m_featureUIs.size();
 
-        // deletes old UI and output object
-        m_deviceUIs.back()->freeTxChannels();
-        m_deviceUIs.back()->m_deviceAPI->getSampleSink()->setMessageQueueToGUI(0); // have sink stop sending messages to the GUI
-	    m_deviceUIs.back()->m_deviceAPI->getPluginInterface()->deleteSampleSourcePluginInstanceGUI(
-	            m_deviceUIs.back()->m_deviceAPI->getSamplingDevicePluginInstanceGUI());
-	    m_deviceUIs.back()->m_deviceAPI->resetSamplingDeviceId();
-	    m_deviceUIs.back()->m_deviceAPI->getPluginInterface()->deleteSampleSinkPluginInstanceOutput(
-	            m_deviceUIs.back()->m_deviceAPI->getSampleSink());
-        m_deviceUIs.back()->m_deviceAPI->clearBuddiesLists(); // clear old API buddies lists
-        m_deviceUIs.back()->m_samplingDeviceControl->removeSelectedDeviceIndex(); // This releases the device in the device list
+    if (newFeatureSetIndex != 0)
+    {
+        qWarning("MainWindow::addFeatureSet: attempt to add more than one feature set (%d)", newFeatureSetIndex);
+        return;
+    }
 
-	    ui->tabChannels->removeTab(ui->tabChannels->count() - 1);
+    m_mainCore->appendFeatureSet();
+    m_featureUIs.push_back(new FeatureUISet(newFeatureSetIndex, m_mainCore->m_featureSets[newFeatureSetIndex]));
+    emit m_mainCore->featureSetAdded(newFeatureSetIndex);
+}
 
-	    ui->tabInputsSelect->removeTab(ui->tabInputsSelect->count() - 1);
+void MainWindow::removeFeatureSet(unsigned int tabIndex)
+{
+    if (tabIndex < m_featureUIs.size())
+    {
+        delete m_featureUIs[tabIndex];
+        m_featureUIs.pop_back();
+        m_mainCore->removeFeatureSet(tabIndex);
+        emit m_mainCore->featureSetRemoved(tabIndex);
+    }
+}
 
-	    m_deviceWidgetTabs.removeLast();
-	    ui->tabInputsView->clear();
-
-	    for (int i = 0; i < m_deviceWidgetTabs.size(); i++)
-	    {
-	        qDebug("MainWindow::removeLastDevice: adding back tab for %s", m_deviceWidgetTabs[i].displayName.toStdString().c_str());
-	        ui->tabInputsView->addTab(m_deviceWidgetTabs[i].gui, m_deviceWidgetTabs[i].tabName);
-	        ui->tabInputsView->setTabToolTip(i, m_deviceWidgetTabs[i].displayName);
-	    }
-
-	    DeviceAPI *sinkAPI = m_deviceUIs.back()->m_deviceAPI;
-	    delete m_deviceUIs.back();
-
-	    lastDeviceEngine->stop();
-	    m_dspEngine->removeLastDeviceSinkEngine();
-
-	    delete sinkAPI;
-	}
-
-    m_deviceUIs.pop_back();
+void MainWindow::removeAllFeatureSets()
+{
+    while (!m_featureUIs.empty())
+    {
+        delete m_featureUIs.back();
+        m_featureUIs.pop_back();
+        m_mainCore->removeLastFeatureSet();
+    }
 }
 
 void MainWindow::deleteChannel(int deviceSetIndex, int channelIndex)
@@ -474,169 +1832,451 @@ void MainWindow::deleteChannel(int deviceSetIndex, int channelIndex)
     if ((deviceSetIndex >= 0) && (deviceSetIndex < (int) m_deviceUIs.size()))
     {
         DeviceUISet *deviceSet = m_deviceUIs[deviceSetIndex];
-
-        if (deviceSet->m_deviceSourceEngine) // source device => Rx channels
-        {
-            deviceSet->deleteRxChannel(channelIndex);
-        }
-        else if (deviceSet->m_deviceSinkEngine) // sink device => Tx channels
-        {
-            deviceSet->deleteTxChannel(channelIndex);
-        }
+        deviceSet->deleteChannel(channelIndex);
     }
-}
-
-void MainWindow::addChannelRollup(int deviceTabIndex, QWidget* widget)
-{
-    if (deviceTabIndex < ui->tabInputsView->count())
-    {
-        DeviceUISet *deviceUI = m_deviceUIs[deviceTabIndex];
-        deviceUI->m_channelWindow->addRollupWidget(widget);
-        ui->channelDock->show();
-        ui->channelDock->raise();
-    }
-}
-
-void MainWindow::addViewAction(QAction* action)
-{
-	ui->menu_Window->addAction(action);
-}
-
-void MainWindow::setDeviceGUI(int deviceTabIndex, QWidget* gui, const QString& deviceDisplayName, bool sourceDevice)
-{
-    char tabNameCStr[16];
-
-    if (sourceDevice)
-    {
-        sprintf(tabNameCStr, "R%d", deviceTabIndex);
-    }
-    else
-    {
-        sprintf(tabNameCStr, "T%d", deviceTabIndex);
-    }
-
-    qDebug("MainWindow::setDeviceGUI: insert %s tab at %d", sourceDevice ? "Rx" : "Tx", deviceTabIndex);
-
-    if (deviceTabIndex < m_deviceWidgetTabs.size())
-    {
-        m_deviceWidgetTabs[deviceTabIndex] = {gui, deviceDisplayName, QString(tabNameCStr)};
-    }
-    else
-    {
-        m_deviceWidgetTabs.append({gui, deviceDisplayName, QString(tabNameCStr)});
-    }
-
-    ui->tabInputsView->clear();
-
-    for (int i = 0; i < m_deviceWidgetTabs.size(); i++)
-    {
-        qDebug("MainWindow::setDeviceGUI: adding tab for %s", m_deviceWidgetTabs[i].displayName.toStdString().c_str());
-        ui->tabInputsView->addTab(m_deviceWidgetTabs[i].gui, m_deviceWidgetTabs[i].tabName);
-        ui->tabInputsView->setTabToolTip(i, m_deviceWidgetTabs[i].displayName);
-    }
-
-    ui->tabInputsView->setCurrentIndex(deviceTabIndex);
 }
 
 void MainWindow::loadSettings()
 {
 	qDebug() << "MainWindow::loadSettings";
 
-    m_settings.load();
-    m_settings.sortPresets();
-    int middleIndex = m_settings.getPresetCount() / 2;
-    QTreeWidgetItem *treeItem;
-
-    for (int i = 0; i < m_settings.getPresetCount(); ++i)
-    {
-        treeItem = addPresetToTree(m_settings.getPreset(i));
-
-        if (i == middleIndex) {
-            ui->presetTree->setCurrentItem(treeItem);
-        }
+    m_mainCore->m_settings.load();
+    m_mainCore->m_settings.sortPresets();
+    m_mainCore->m_settings.sortCommands();
+    if (m_mainCore->m_logger) {
+        m_mainCore->setLoggingOptions();
     }
-
-    m_settings.sortCommands();
-
-    for (int i = 0; i < m_settings.getCommandCount(); ++i)
-    {
-        treeItem = addCommandToTree(m_settings.getCommand(i));
-    }
-
-    setLoggingOptions();
 }
 
-void MainWindow::loadPresetSettings(const Preset* preset, int tabIndex)
+void MainWindow::loadDeviceSetPresetSettings(const Preset* preset, int deviceSetIndex)
 {
-	qDebug("MainWindow::loadPresetSettings: preset [%s | %s]",
+	qDebug("MainWindow::loadDeviceSetPresetSettings: preset [%s | %s]",
 		qPrintable(preset->getGroup()),
 		qPrintable(preset->getDescription()));
 
-	if (tabIndex >= 0)
+	if (deviceSetIndex >= 0)
 	{
-        DeviceUISet *deviceUI = m_deviceUIs[tabIndex];
-
-        if (deviceUI->m_deviceSourceEngine) // source device
-        {
-            deviceUI->m_spectrumGUI->deserialize(preset->getSpectrumConfig());
-            deviceUI->m_deviceAPI->loadSamplingDeviceSettings(preset);
-            deviceUI->loadRxChannelSettings(preset, m_pluginManager->getPluginAPI());
-        }
-        else if (deviceUI->m_deviceSinkEngine) // sink device
-        {
-            deviceUI->m_spectrumGUI->deserialize(preset->getSpectrumConfig());
-            deviceUI->m_deviceAPI->loadSamplingDeviceSettings(preset);
-            deviceUI->loadTxChannelSettings(preset, m_pluginManager->getPluginAPI());
-        }
+        DeviceUISet *deviceUISet = m_deviceUIs[deviceSetIndex];
+        deviceUISet->loadDeviceSetSettings(preset, m_pluginManager->getPluginAPI(), &m_workspaces, nullptr);
 	}
-
-	// has to be last step
-	restoreState(preset->getLayout());
-    tabifyDockWidget(ui->presetDock, ui->commandsDock); // override this setting
-    ui->presetDock->raise();
 }
 
-void MainWindow::savePresetSettings(Preset* preset, int tabIndex)
+void MainWindow::saveDeviceSetPresetSettings(Preset* preset, int deviceSetIndex)
 {
-	qDebug("MainWindow::savePresetSettings: preset [%s | %s]",
+	qDebug("MainWindow::saveDeviceSetPresetSettings: preset [%s | %s]",
 		qPrintable(preset->getGroup()),
 		qPrintable(preset->getDescription()));
 
     // Save from currently selected source tab
     //int currentSourceTabIndex = ui->tabInputsView->currentIndex();
-    DeviceUISet *deviceUI = m_deviceUIs[tabIndex];
-
-    if (deviceUI->m_deviceSourceEngine) // source device
-    {
-        preset->setSpectrumConfig(deviceUI->m_spectrumGUI->serialize());
-        preset->clearChannels();
-        deviceUI->saveRxChannelSettings(preset);
-        deviceUI->m_deviceAPI->saveSamplingDeviceSettings(preset);
-    }
-    else if (deviceUI->m_deviceSinkEngine) // sink device
-    {
-        preset->setSpectrumConfig(deviceUI->m_spectrumGUI->serialize());
-        preset->clearChannels();
-        preset->setSourcePreset(false);
-        deviceUI->saveTxChannelSettings(preset);
-        deviceUI->m_deviceAPI->saveSamplingDeviceSettings(preset);
-    }
-
-    preset->setLayout(saveState());
+    const DeviceUISet *deviceUISet = m_deviceUIs[deviceSetIndex];
+    deviceUISet->saveDeviceSetSettings(preset);
 }
 
-void MainWindow::saveCommandSettings()
+void MainWindow::loadFeatureSetPresetSettings(const FeatureSetPreset* preset, int featureSetIndex, Workspace *workspace)
 {
+	qDebug("MainWindow::loadFeatureSetPresetSettings: preset [%s | %s]",
+		qPrintable(preset->getGroup()),
+		qPrintable(preset->getDescription()));
+
+	if (featureSetIndex >= 0)
+	{
+        FeatureUISet *featureSetUI = m_featureUIs[featureSetIndex];
+        qDebug("MainWindow::loadFeatureSetPresetSettings: m_apiAdapter: %p", m_apiAdapter);
+        featureSetUI->loadFeatureSetSettings(preset, m_pluginManager->getPluginAPI(), m_apiAdapter, &m_workspaces, workspace);
+	}
+}
+
+void MainWindow::saveFeatureSetPresetSettings(FeatureSetPreset* preset, int featureSetIndex)
+{
+	qDebug("MainWindow::saveFeatureSetPresetSettings: preset [%s | %s]",
+		qPrintable(preset->getGroup()),
+		qPrintable(preset->getDescription()));
+
+    // Save from currently selected source tab
+    //int currentSourceTabIndex = ui->tabInputsView->currentIndex();
+    FeatureUISet *featureUI = m_featureUIs[featureSetIndex];
+
+    preset->clearFeatures();
+    featureUI->saveFeatureSetSettings(preset);
+}
+
+void MainWindow::loadDefaultConfigurations() const
+{
+    QDirIterator configurationsIt(":configurations", QDirIterator::Subdirectories);
+    while (configurationsIt.hasNext())
+    {
+        QString group = configurationsIt.next();
+        QDirIterator groupIt(group, {"*.cfgx"}, QDir::Files);
+        while (groupIt.hasNext())
+        {
+            QFile file(groupIt.next());
+			if (file.open(QIODevice::ReadOnly | QIODevice::Text))
+			{
+				QByteArray base64Str;
+				QTextStream instream(&file);
+				instream >> base64Str;
+				file.close();
+
+				Configuration* configuration = MainCore::instance()->m_settings.newConfiguration("", "");
+				configuration->deserialize(QByteArray::fromBase64(base64Str));
+			}
+            else
+            {
+                qDebug() << "MainWindow::loadDefaultConfigurations: Failed to open configuration " << file.fileName();
+            }
+        }
+    }
+
+    QDirIterator presetIt(":presets", QDirIterator::Subdirectories);
+    while (presetIt.hasNext())
+    {
+        QString group = presetIt.next();
+        QDirIterator groupIt(group, {"*.prex"}, QDir::Files);
+        while (groupIt.hasNext())
+        {
+            QFile file(groupIt.next());
+			if (file.open(QIODevice::ReadOnly | QIODevice::Text))
+			{
+				QByteArray base64Str;
+				QTextStream instream(&file);
+				instream >> base64Str;
+				file.close();
+
+				Preset* preset = MainCore::instance()->m_settings.newPreset("", "");
+				preset->deserialize(QByteArray::fromBase64(base64Str));
+			}
+            else
+            {
+                qDebug() << "MainWindow::loadDefaultConfigurations: Failed to open preset " << file.fileName();
+            }
+        }
+    }
+}
+
+void MainWindow::loadConfiguration(const Configuration *configuration, bool fromDialog)
+{
+	qDebug("MainWindow::loadConfiguration: configuration [%s | %s] %d workspace(s) - %d device set(s) - %d feature(s)",
+		qPrintable(configuration->getGroup()),
+		qPrintable(configuration->getDescription()),
+        (int)configuration->getNumberOfWorkspaceGeometries(),
+        (int)configuration->getDeviceSetPresets().size(),
+        (int)configuration->getFeatureSetPreset().getFeatureCount()
+    );
+
+    // ConfigurationsDialog calls on_configurationLoad_clicked() from both
+    // on_configurationsTree_itemActivated() (double-click or Enter) and accept()
+    // (the OK button), so a double-click followed by OK - or simply a second click
+    // on Load while the first is still running - starts a second LoadConfigurationFSM.
+    // The two then overlap: the second one's RemoveAllWorkspacesFSM deletes the
+    // workspaces, device sets and GUI widgets the first is still walking, and the
+    // first goes on to dereference freed objects. Serialize them instead.
+    // The QPointer clears itself if the FSM dies without finishing, so a load that
+    // goes wrong cannot wedge this permanently.
+    if (!m_configurationLoadFSM.isNull())
+    {
+        qWarning("MainWindow::loadConfiguration: a configuration is already being loaded - ignoring this request");
+        return;
+    }
+
+    QProgressDialog *waitBox = nullptr;
+
+    if (fromDialog)
+    {
+        waitBox = new QProgressDialog("Loading configuration...", "", 0, 100, this);
+        waitBox->setWindowModality(Qt::WindowModal);
+        waitBox->setAttribute(Qt::WA_DeleteOnClose, true);
+        waitBox->setMinimumDuration(0);
+        waitBox->setCancelButton(nullptr);
+        waitBox->setValue(1);
+        QApplication::processEvents();
+    }
+
+    LoadConfigurationFSM *fsm = new LoadConfigurationFSM(this, configuration, waitBox);
+    m_configurationLoadFSM = fsm;
+    connect(fsm, &LoadConfigurationFSM::finished, this, [this]() { m_configurationLoadFSM.clear(); });
+    connect(fsm, &LoadConfigurationFSM::finished, fsm, &LoadConfigurationFSM::deleteLater);
+    fsm->start();
+    }
+
+void MainWindow::saveConfiguration(Configuration *configuration)
+{
+	qDebug("MainWindow::saveConfiguration: configuration [%s | %s] %d workspaces",
+		qPrintable(configuration->getGroup()),
+		qPrintable(configuration->getDescription()),
+        (int)m_workspaces.size()
+    );
+
+    configuration->clearData();
+    QList<Preset>& deviceSetPresets = configuration->getDeviceSetPresets();
+
+    for (const auto& deviceUISet : m_deviceUIs)
+    {
+        deviceSetPresets.push_back(Preset());
+        deviceUISet->saveDeviceSetSettings(&deviceSetPresets.back());
+        deviceSetPresets.back().setSpectrumGeometry(MDIUtils::saveMDIGeometry(deviceUISet->m_mainSpectrumGUI));
+        deviceSetPresets.back().setSpectrumWorkspaceIndex(deviceUISet->m_mainSpectrumGUI->getWorkspaceIndex());
+        deviceSetPresets.back().setDeviceGeometry(MDIUtils::saveMDIGeometry(deviceUISet->m_deviceGUI));
+        deviceSetPresets.back().setDeviceWorkspaceIndex(deviceUISet->m_deviceGUI->getWorkspaceIndex());
+        qDebug("MainWindow::saveConfiguration: %s device in workspace %d spectrum in %d",
+            qPrintable(deviceUISet->m_deviceAPI->getSamplingDeviceId()),
+            deviceUISet->m_deviceGUI->getWorkspaceIndex(),
+            deviceUISet->m_mainSpectrumGUI->getWorkspaceIndex());
+    }
+
+    m_featureUIs[0]->saveFeatureSetSettings(&configuration->getFeatureSetPreset());
+
+    for (const auto& workspace : m_workspaces)
+    {
+        configuration->getWorkspaceGeometries().push_back(workspace->saveGeometry());
+        configuration->getWorkspaceAutoStackOptions().push_back(workspace->getAutoStackOption());
+        configuration->getWorkspaceTabSubWindowsOptions().push_back(workspace->getTabSubWindowsOption());
+    }
+}
+
+QString MainWindow::openGLVersion() const
+{
+    const QOpenGLContext *glCurrentContext = QOpenGLContext::globalShareContext();
+    if (glCurrentContext)
+    {
+        if (glCurrentContext->isValid())
+        {
+            int major = glCurrentContext->format().majorVersion();
+            int minor = glCurrentContext->format().minorVersion();
+            bool es = glCurrentContext->isOpenGLES();
+            QString version = QString("%1.%2%3").arg(major).arg(minor).arg(es ? " ES" : "");
+            // Waterfall doesn't work if version is less than 2.1, so display in red
+            if ((major < 2) || ((major == 2) && (minor == 0))) {
+                version = "<span style=\"color:red\">" + version + "</span>";
+            }
+            return version;
+        }
+        else
+        {
+            return "N/A";
+        }
+    }
+    else
+    {
+        return "N/A";
+    }
+}
+
+void MainWindow::createMenuBar(QToolButton *button) const
+{
+    QMenu *fileMenu;
+    QMenu *viewMenu;
+    QMenu *workspacesMenu;
+    QMenu *windowMenu;
+    QMenu *preferencesMenu;
+    QMenu *helpMenu;
+
+    if (button == nullptr)
+    {
+        QMenuBar *menuBar = this->menuBar();
+        fileMenu = menuBar->addMenu("&File");
+        viewMenu = menuBar->addMenu("&View");
+        workspacesMenu = menuBar->addMenu("&Workspaces");
+        windowMenu = menuBar->addMenu("Wi&ndow");
+        preferencesMenu = menuBar->addMenu("&Preferences");
+        helpMenu = menuBar->addMenu("&Help");
+    }
+    else
+    {
+        auto *menu = new QMenu();
+        fileMenu = new QMenu("&File");
+        menu->addMenu(fileMenu);
+        viewMenu = new QMenu("&View");
+        menu->addMenu(viewMenu);
+        workspacesMenu = new QMenu("&Workspaces");
+        menu->addMenu(workspacesMenu);
+        windowMenu = new QMenu("Wi&ndow");
+        menu->addMenu(windowMenu);
+        preferencesMenu = new QMenu("&Preferences");
+        menu->addMenu(preferencesMenu);
+        helpMenu = new QMenu("&Help");
+        menu->addMenu(helpMenu);
+        button->setMenu(menu);
+    }
+
+    QAction *exitAction = fileMenu->addAction("E&xit");
+    exitAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_Q));
+    exitAction->setToolTip("Exit");
+    QObject::connect(exitAction, &QAction::triggered, this, &QMainWindow::close);
+
+    QAction *fullscreenAction = viewMenu->addAction("&Fullscreen");
+    fullscreenAction->setShortcut(QKeySequence(Qt::Key_F11));
+    fullscreenAction->setToolTip("Toggle fullscreen view");
+    fullscreenAction->setCheckable(true);
+    QObject::connect(fullscreenAction, &QAction::triggered, this, &MainWindow::on_action_View_Fullscreen_toggled);
+#ifdef ANDROID
+    QAction *keepscreenonAction = viewMenu->addAction("&Keep screen on");
+    keepscreenonAction->setToolTip("Prevent screen from switching off");
+    keepscreenonAction->setCheckable(true);
+    QObject::connect(keepscreenonAction, &QAction::triggered, this, &MainWindow::on_action_View_KeepScreenOn_toggled);
+#endif
+#ifdef ENABLE_PROFILER
+    QAction *profileAction = viewMenu->addAction("&Profile data...");
+    profileAction->setToolTip("View profile data");
+    QObject::connect(profileAction, &QAction::triggered, this, &MainWindow::on_action_Profile_triggered);
+#endif
+
+    QAction *newWorkspaceAction = workspacesMenu->addAction("&New");
+    newWorkspaceAction->setToolTip("Add a new workspace");
+    QObject::connect(newWorkspaceAction, &QAction::triggered, this, &MainWindow::addWorkspace);
+    QAction *viewAllWorkspacesAction = workspacesMenu->addAction("&View all");
+    viewAllWorkspacesAction->setToolTip("View all workspaces");
+    QObject::connect(viewAllWorkspacesAction, &QAction::triggered, this, &MainWindow::viewAllWorkspaces);
+    QAction *removeEmptyWorkspacesAction = workspacesMenu->addAction("&Remove empty");
+    removeEmptyWorkspacesAction->setToolTip("Remove empty workspaces");
+    QObject::connect(removeEmptyWorkspacesAction, &QAction::triggered, this, &MainWindow::removeEmptyWorkspaces);
+
+    // Filled in each time it is opened, so it always matches what is hidden right now and
+    // needs no signals from windows being added, hidden or closed
+    QMenu *showMenu = windowMenu->addMenu("&Show");
+    showMenu->setToolTip("Show a device, spectrum, channel or feature window that has been hidden");
+    QObject::connect(showMenu, &QMenu::aboutToShow, this, [this, showMenu]() { populateShowMenu(showMenu); });
+
+    // These do what the workspace title bar buttons do, for the workspace the user last
+    // worked in. They hold the Ctrl+Shift+C/T/V/S/B shortcuts the buttons used to have:
+    // every workspace's buttons claimed the same keys, which made them ambiguous as soon
+    // as there was more than one workspace, so none of them fired. ApplicationShortcut,
+    // as a workspace that has been undocked is a window of its own. A QShortcut rather than
+    // QAction::setShortcut, which would print the key alongside the item. Only the real menu
+    // bar takes them: on Android these menus are built once per workspace, and duplicates of
+    // an application shortcut are ambiguous in just the same way
+    auto arrangeShortcut = [this, button](QAction *action, Qt::Key key)
+    {
+        if (!button)
+        {
+            auto *shortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | key), menuBar());
+            shortcut->setContext(Qt::ApplicationShortcut);
+            QObject::connect(shortcut, &QShortcut::activated, action, &QAction::trigger);
+        }
+    };
+
+    windowMenu->addSeparator();
+
+    QAction *cascadeAction = windowMenu->addAction("&Cascade");
+    cascadeAction->setToolTip("Cascade sub windows");
+    arrangeShortcut(cascadeAction, Qt::Key_C);
+    QObject::connect(cascadeAction, &QAction::triggered, this, [this]() {
+        if (Workspace *workspace = currentWorkspace()) { workspace->cascadeSubWindows(); }
+    });
+
+    QAction *tileAction = windowMenu->addAction("&Tile");
+    tileAction->setToolTip("Tile sub windows");
+    arrangeShortcut(tileAction, Qt::Key_T);
+    QObject::connect(tileAction, &QAction::triggered, this, [this]() {
+        if (Workspace *workspace = currentWorkspace()) { workspace->tileSubWindows(); }
+    });
+
+    QAction *stackVerticalAction = windowMenu->addAction("Stack &vertically");
+    stackVerticalAction->setToolTip("Stack sub windows vertically");
+    arrangeShortcut(stackVerticalAction, Qt::Key_V);
+    QObject::connect(stackVerticalAction, &QAction::triggered, this, [this]() {
+        if (Workspace *workspace = currentWorkspace()) { workspace->stackVerticalSubWindows(); }
+    });
+
+    QAction *stackColumnsAction = windowMenu->addAction("Stack in c&olumns");
+    stackColumnsAction->setToolTip("Stack sub windows in columns");
+    arrangeShortcut(stackColumnsAction, Qt::Key_S);
+    QObject::connect(stackColumnsAction, &QAction::triggered, this, [this]() {
+        if (Workspace *workspace = currentWorkspace()) { workspace->stackSubWindows(); }
+    });
+
+    QAction *tabsAction = windowMenu->addAction("Ta&bs");
+    tabsAction->setToolTip("Display sub windows in tabs");
+    arrangeShortcut(tabsAction, Qt::Key_B);
+    tabsAction->setCheckable(true);
+    QObject::connect(tabsAction, &QAction::triggered, this, [this, tabsAction]() {
+        // Toggle what the workspace has, not what the tick says: the shortcut can be used
+        // without the menu ever being opened to sync it
+        Workspace *workspace = currentWorkspace();
+
+        if (workspace) {
+            workspace->setTabSubWindowsOption(!workspace->getTabSubWindowsOption());
+        }
+
+        tabsAction->setChecked(workspace && workspace->getTabSubWindowsOption());
+    });
+
+    // Tabs is per workspace, so its tick has to follow whichever workspace the items act on
+    QList<QAction *> arrangeActions = {cascadeAction, tileAction, stackVerticalAction, stackColumnsAction, tabsAction};
+    QObject::connect(windowMenu, &QMenu::aboutToShow, this, [this, arrangeActions, tabsAction]() {
+        Workspace *workspace = currentWorkspace();
+
+        for (QAction *action : arrangeActions) {
+            action->setEnabled(workspace != nullptr);
+        }
+
+        tabsAction->setChecked(workspace && workspace->getTabSubWindowsOption());
+    });
+
+    QAction *configurationsAction = preferencesMenu->addAction("&Configurations...");
+    configurationsAction->setToolTip("Manage configurations");
+    QObject::connect(configurationsAction, &QAction::triggered, this, &MainWindow::on_action_Configurations_triggered);
+    QAction *audioAction = preferencesMenu->addAction("&Audio...");
+    audioAction->setToolTip("Audio preferences");
+    QObject::connect(audioAction, &QAction::triggered, this, &MainWindow::on_action_Audio_triggered);
+    QAction *graphicsAction = preferencesMenu->addAction("&Graphics...");
+    graphicsAction->setToolTip("Graphics preferences");
+    QObject::connect(graphicsAction, &QAction::triggered, this, &MainWindow::on_action_Graphics_triggered);
+    QAction *loggingAction = preferencesMenu->addAction("&Logging...");
+    loggingAction->setToolTip("Logging preferences");
+    QObject::connect(loggingAction, &QAction::triggered, this, &MainWindow::on_action_Logging_triggered);
+    QAction *myPositionAction = preferencesMenu->addAction("My &Position...");
+    myPositionAction->setToolTip("Set station position");
+    QObject::connect(myPositionAction, &QAction::triggered, this, &MainWindow::on_action_My_Position_triggered);
+    QAction *fftAction = preferencesMenu->addAction("&FFT...");
+    fftAction->setToolTip("Set FFT preferences");
+    QObject::connect(fftAction, &QAction::triggered, this, &MainWindow::on_action_FFT_triggered);
+#if QT_CONFIG(process)
+    QAction *fftWisdomAction = preferencesMenu->addAction("&FFTW Wisdom...");
+    fftWisdomAction->setToolTip("Set FFTW cache");
+    QObject::connect(fftWisdomAction, &QAction::triggered, this, &MainWindow::on_action_FFTWisdom_triggered);
+#endif
+    QMenu *devicesMenu = preferencesMenu->addMenu("&Devices");
+    QAction *userArgumentsAction = devicesMenu->addAction("&User arguments...");
+    userArgumentsAction->setToolTip("Device custom user arguments");
+    QObject::connect(userArgumentsAction, &QAction::triggered, this, &MainWindow::on_action_DeviceUserArguments_triggered);
+#if QT_CONFIG(process)
+    QAction *commandsAction = preferencesMenu->addAction("C&ommands...");
+    commandsAction->setToolTip("External commands dialog");
+    QObject::connect(commandsAction, &QAction::triggered, this, &MainWindow::on_action_commands_triggered);
+#endif
+    QAction *saveAllAction = preferencesMenu->addAction("&Save all");
+    saveAllAction->setToolTip("Save all current settings");
+    QObject::connect(saveAllAction, &QAction::triggered, this, &MainWindow::on_action_saveAll_triggered);
+
+#if defined(ANDROID) || defined(__EMSCRIPTEN__)
+    QAction *welcomeAction = helpMenu->addAction("&Welcome...");
+    welcomeAction->setToolTip("Show welcome dialog");
+    QObject::connect(welcomeAction, &QAction::triggered, this, &MainWindow::on_action_Welcome_triggered);
+#endif
+    QAction *quickStartAction = helpMenu->addAction("&Quick start...");
+    quickStartAction->setToolTip("Instructions for quick start");
+    QObject::connect(quickStartAction, &QAction::triggered, this, &MainWindow::on_action_Quick_Start_triggered);
+    QAction *mainWindowAction = helpMenu->addAction("&Main Window...");
+    mainWindowAction->setToolTip("Help on main window details");
+    QObject::connect(mainWindowAction, &QAction::triggered, this, &MainWindow::on_action_Main_Window_triggered);
+    QAction *loadedPluginsAction = helpMenu->addAction("Loaded &Plugins...");
+    loadedPluginsAction->setToolTip("List available plugins");
+    QObject::connect(loadedPluginsAction, &QAction::triggered, this, &MainWindow::on_action_Loaded_Plugins_triggered);
+    QAction *aboutAction = helpMenu->addAction("&About SDRangel...");
+    aboutAction->setToolTip("SDRangel application details");
+    QObject::connect(aboutAction, &QAction::triggered, this, &MainWindow::on_action_About_triggered);
 }
 
 void MainWindow::createStatusBar()
 {
     QString qtVersionStr = QString("Qt %1 ").arg(QT_VERSION_STR);
-#if QT_VERSION >= 0x050400
-    m_showSystemWidget = new QLabel("SDRangel " + qApp->applicationVersion() + " " + qtVersionStr
+    QString openGLVersionStr = QString("OpenGL %1 ").arg(openGLVersion());
+#if QT_VERSION >= QT_VERSION_CHECK(5, 4, 0)
+    m_showSystemWidget = new QLabel("SDRangel " + qApp->applicationVersion() + " " + qtVersionStr + openGLVersionStr
             + QSysInfo::currentCpuArchitecture() + " " + QSysInfo::prettyProductName(), this);
 #else
-    m_showSystemWidget = new QLabel("SDRangel " + qApp->applicationVersion() + " " + qtVersionStr, this);
+    m_showSystemWidget = new QLabel("SDRangel " + qApp->applicationVersion() + " " + qtVersionStr + openGLVersionStr, this);
 #endif
     statusBar()->addPermanentWidget(m_showSystemWidget);
 
@@ -645,212 +2285,403 @@ void MainWindow::createStatusBar()
 	statusBar()->addPermanentWidget(m_dateTimeWidget);
 }
 
-void MainWindow::closeEvent(QCloseEvent*)
+void MainWindow::closeEvent(QCloseEvent *closeEvent)
 {
-}
+    qDebug("MainWindow::closeEvent");
+    m_connectionOverlayRefreshTimer.stop();
 
-void MainWindow::updatePresetControls()
-{
-	ui->presetTree->resizeColumnToContents(0);
-
-	if(ui->presetTree->currentItem() != 0)
-	{
-		ui->presetDelete->setEnabled(true);
-		ui->presetLoad->setEnabled(true);
-	}
-	else
-	{
-		ui->presetDelete->setEnabled(false);
-		ui->presetLoad->setEnabled(false);
-	}
-}
-
-QTreeWidgetItem* MainWindow::addPresetToTree(const Preset* preset)
-{
-	QTreeWidgetItem* group = 0;
-
-	for(int i = 0; i < ui->presetTree->topLevelItemCount(); i++)
-	{
-		if(ui->presetTree->topLevelItem(i)->text(0) == preset->getGroup())
-		{
-			group = ui->presetTree->topLevelItem(i);
-			break;
-		}
-	}
-
-	if(group == 0)
-	{
-		QStringList sl;
-		sl.append(preset->getGroup());
-		group = new QTreeWidgetItem(ui->presetTree, sl, PGroup);
-		group->setFirstColumnSpanned(true);
-		group->setExpanded(true);
-		ui->presetTree->sortByColumn(0, Qt::AscendingOrder);
-	}
-
-	QStringList sl;
-	sl.append(QString("%1").arg(preset->getCenterFrequency() / 1e6f, 0, 'f', 3)); // frequency column
-	sl.append(QString("%1").arg(preset->isSourcePreset() ? 'R' : 'T'));           // mode column
-	sl.append(preset->getDescription());                                          // description column
-	PresetItem* item = new PresetItem(group, sl, preset->getCenterFrequency(), PItem);
-	item->setTextAlignment(0, Qt::AlignRight);
-	item->setData(0, Qt::UserRole, qVariantFromValue(preset));
-	ui->presetTree->resizeColumnToContents(0); // Resize frequency column to minimum
-    ui->presetTree->resizeColumnToContents(1); // Resize mode column to minimum
-
-	updatePresetControls();
-	return item;
-}
-
-QTreeWidgetItem* MainWindow::addCommandToTree(const Command* command)
-{
-    QTreeWidgetItem* group = 0;
-
-    for(int i = 0; i < ui->commandTree->topLevelItemCount(); i++)
+    if (!m_settingsSaved)
     {
-        if(ui->commandTree->topLevelItem(i)->text(0) == command->getGroup())
-        {
-            group = ui->commandTree->topLevelItem(i);
-            break;
-        }
+    // Save window size and position
+    QSettings s;
+    s.setValue("mainWindowGeometry", qCompress(saveGeometry()).toBase64());
+    s.setValue("mainWindowState", qCompress(saveState()).toBase64());
+
+    saveConfiguration(m_mainCore->m_settings.getWorkingConfiguration());
+    m_mainCore->m_settings.save();
+
+        m_settingsSaved = true;
     }
 
-    if(group == 0)
+    setConnectionOverlayEnabled(false);
+
+    if (m_deviceUIs.size() > 0)
     {
-        QStringList sl;
-        sl.append(command->getGroup());
-        group = new QTreeWidgetItem(ui->commandTree, sl, PGroup);
-        group->setFirstColumnSpanned(true);
-        group->setExpanded(true);
-        ui->commandTree->sortByColumn(0, Qt::AscendingOrder);
+        CloseFSM *fsm = new CloseFSM(this);
+        connect(fsm, &CloseFSM::finished, fsm, &CloseFSM::deleteLater);
+        fsm->start();
+        closeEvent->ignore(); // CloseFSM will call close again later once all devices closed
+        return;
     }
 
-    QStringList sl;
-    sl.append(QString("%1").arg(command->getDescription())); // Descriptions column
-    sl.append(QString("%1").arg(command->getAssociateKey() ? command->getRelease() ? "R" : "P" : "-")); // key press/release column
-    sl.append(QString("%1").arg(command->getKeyLabel()));   // key column
-    CommandItem* item = new CommandItem(group, sl, command->getDescription(), PItem);
-    item->setData(0, Qt::UserRole, qVariantFromValue(command));
-    item->setTextAlignment(0, Qt::AlignLeft);
-    ui->commandTree->resizeColumnToContents(0); // Resize description column to minimum
-    ui->commandTree->resizeColumnToContents(1); // Resize key column to minimum
-    ui->commandTree->resizeColumnToContents(2); // Resize key press/release column to minimum
+    if (m_profileDialog) {
+        m_profileDialog->close();
+    }
 
-    //updatePresetControls();
-    return item;
+    closeEvent->accept();
 }
 
 void MainWindow::applySettings()
 {
+    loadConfiguration(m_mainCore->m_settings.getWorkingConfiguration());
+
+    m_mainCore->m_settings.sortPresets();
+    m_mainCore->setLoggingOptions();
 }
 
 bool MainWindow::handleMessage(const Message& cmd)
 {
-    if (MsgLoadPreset::match(cmd))
+    if (MainCore::MsgLoadPreset::match(cmd))
     {
-        MsgLoadPreset& notif = (MsgLoadPreset&) cmd;
-        loadPresetSettings(notif.getPreset(), notif.getDeviceSetIndex());
-        return true;
-    }
-    else if (MsgSavePreset::match(cmd))
-    {
-        MsgSavePreset& notif = (MsgSavePreset&) cmd;
-        savePresetSettings(notif.getPreset(), notif.getDeviceSetIndex());
-        if (notif.isNewPreset()) { ui->presetTree->setCurrentItem(addPresetToTree(notif.getPreset())); }
-        m_settings.sortPresets();
-        m_settings.save();
-        return true;
-    }
-    else if (MsgDeletePreset::match(cmd))
-    {
-        MsgDeletePreset& notif = (MsgDeletePreset&) cmd;
-        const Preset *presetToDelete = notif.getPreset();
+        auto& notif = (const MainCore::MsgLoadPreset&) cmd;
+        int deviceSetIndex =  notif.getDeviceSetIndex();
+        const Preset *preset = notif.getPreset();
 
-        // remove preset from tree
-        for (int ig = 0; ig < ui->presetTree->topLevelItemCount(); ig++)
+        if (deviceSetIndex < (int) m_deviceUIs.size())
         {
-            QTreeWidgetItem *groupItem = ui->presetTree->topLevelItem(ig);
-            if (groupItem->text(0) == presetToDelete->getGroup())
-            {
-                for (int ip = 0; ip < groupItem->childCount(); ip++)
-                {
-                    QTreeWidgetItem *presetItem = groupItem->child(ip);
-                    const Preset* preset = qvariant_cast<const Preset*>(presetItem->data(0, Qt::UserRole));
+            DeviceUISet *deviceUISet = m_deviceUIs[deviceSetIndex];
+            deviceUISet->loadDeviceSetSettings(preset, m_pluginManager->getPluginAPI(), &m_workspaces, nullptr);
+        }
 
-                    if ((preset->getGroup() == presetToDelete->getGroup()) &&
-                        (preset->getCenterFrequency() == presetToDelete->getCenterFrequency()) &&
-                        (preset->getDescription() == presetToDelete->getDescription()) &&
-                        (preset->isSourcePreset() == presetToDelete->isSourcePreset()))
-                    {
-                        groupItem->takeChild(ip);
-                    }
-                }
+        return true;
+    }
+    else if (MainCore::MsgSavePreset::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgSavePreset&) cmd;
+        saveDeviceSetPresetSettings(notif.getPreset(), notif.getDeviceSetIndex());
+        m_mainCore->m_settings.sortPresets();
+        m_mainCore->m_settings.save();
+        return true;
+    }
+    else if (MainCore::MsgLoadFeatureSetPreset::match(cmd))
+    {
+        if (!m_workspaces.empty())
+        {
+            auto& notif = (const MainCore::MsgLoadFeatureSetPreset&) cmd;
+            loadFeatureSetPresetSettings(notif.getPreset(), notif.getFeatureSetIndex(), m_workspaces[0]);
+        }
+
+        return true;
+    }
+    else if (MainCore::MsgSaveFeatureSetPreset::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgSaveFeatureSetPreset&) cmd;
+        saveFeatureSetPresetSettings(notif.getPreset(), notif.getFeatureSetIndex());
+        m_mainCore->m_settings.sortFeatureSetPresets();
+        m_mainCore->m_settings.save();
+        return true;
+    }
+    else if (MainCore::MsgDeletePreset::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgDeletePreset&) cmd;
+        const Preset *presetToDelete = notif.getPreset();
+        // remove preset from settings
+        m_mainCore->m_settings.deletePreset(presetToDelete);
+        return true;
+    }
+    else if (MainCore::MsgLoadConfiguration::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgLoadConfiguration&) cmd;
+        const Configuration *configuration = notif.getConfiguration();
+        loadConfiguration(configuration, false);
+        return true;
+    }
+    else if (MainCore::MsgSaveConfiguration::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgSaveConfiguration&) cmd;
+        Configuration *configuration = notif.getConfiguration();
+        saveConfiguration(configuration);
+        return true;
+    }
+    else if (MainCore::MsgDeleteConfiguration::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgDeleteConfiguration&) cmd;
+        const Configuration *configurationToDelete = notif.getConfiguration();
+        // remove configuration from settings
+        m_mainCore->m_settings.deleteConfiguration(configurationToDelete);
+        return true;
+    }
+    else if (MainCore::MsgDeleteEmptyWorkspaces::match(cmd))
+    {
+        removeEmptyWorkspaces();
+        return true;
+    }
+    else if (MainCore::MsgAddWorkspace::match(cmd))
+    {
+        addWorkspace();
+        return true;
+    }
+    else if (MainCore::MsgDeleteFeatureSetPreset::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgDeleteFeatureSetPreset&) cmd;
+        const FeatureSetPreset *presetToDelete = notif.getPreset();
+        // remove preset from settings
+        m_mainCore->m_settings.deleteFeatureSetPreset(presetToDelete);
+        return true;
+    }
+    else if (MainCore::MsgAddDeviceSet::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgAddDeviceSet&) cmd;
+        int direction = notif.getDirection();
+
+        if (!m_workspaces.empty())
+        {
+            if (direction == 1) { // Single stream Tx
+                sampleSinkAdd(m_workspaces[0], m_workspaces[0], -1); // create with file output device by default
+            } else if (direction == 0) { // Single stream Rx
+                sampleSourceAdd(m_workspaces[0], m_workspaces[0], -1); // create with file input device by default
+            } else if (direction == 2) { // MIMO
+                sampleMIMOAdd(m_workspaces[0], m_workspaces[0], -1); // create with testMI MIMO device by default
             }
         }
 
-        // remove preset from settings
-        m_settings.deletePreset(presetToDelete);
         return true;
     }
-    else if (MsgAddDeviceSet::match(cmd))
+    else if (MainCore::MsgRemoveLastDeviceSet::match(cmd))
     {
-        MsgAddDeviceSet& notif = (MsgAddDeviceSet&) cmd;
-        int direction = notif.getDirection();
-
-        if (direction == 1) { // Single stream Tx
-            addSinkDevice();
-        } else if (direction == 0) { // Single stream Rx
-            addSourceDevice(-1); // create with file source device by default
-        } // other device types not (yet) supported
-
-        return true;
-    }
-    else if (MsgRemoveLastDeviceSet::match(cmd))
-    {
-        if (m_deviceUIs.size() > 1) {
-            removeLastDevice();
+        if (!m_deviceUIs.empty()) {
+            removeLastDeviceSet();
         }
 
         return true;
     }
-    else if (MsgSetDevice::match(cmd))
+    else if (MainCore::MsgSetDevice::match(cmd))
     {
-        MsgSetDevice& notif = (MsgSetDevice&) cmd;
-        ui->tabInputsSelect->setCurrentIndex(notif.getDeviceSetIndex());
-        DeviceUISet *deviceUI = m_deviceUIs[notif.getDeviceSetIndex()];
-        deviceUI->m_samplingDeviceControl->setSelectedDeviceIndex(notif.getDeviceIndex());
+        auto& notif = (const MainCore::MsgSetDevice&) cmd;
+        int deviceSetIndex = notif.getDeviceSetIndex();
 
-        if (notif.isTx()) {
-            sampleSinkChanged();
-        } else {
-            sampleSourceChanged();
+        if ((deviceSetIndex >= 0) && (deviceSetIndex < (int) m_deviceUIs.size()))
+        {
+            Workspace *workspace = m_workspaces[m_deviceUIs[deviceSetIndex]->m_deviceGUI->getWorkspaceIndex()];
+            sampleDeviceChange(notif.getDeviceType(), notif.getDeviceSetIndex(), notif.getDeviceIndex(), workspace);
         }
 
         return true;
     }
-    else if (MsgAddChannel::match(cmd))
+    else if (MainCore::MsgAddChannel::match(cmd))
     {
-        MsgAddChannel& notif = (MsgAddChannel&) cmd;
-        ui->tabInputsSelect->setCurrentIndex(notif.getDeviceSetIndex());
-        DeviceUISet *deviceUI = m_deviceUIs[notif.getDeviceSetIndex()];
-        deviceUI->m_samplingDeviceControl->getChannelSelector()->setCurrentIndex(notif.getChannelRegistrationIndex());
-        channelAddClicked(true);
+        auto& notif = (const MainCore::MsgAddChannel&) cmd;
+        int deviceSetIndex = notif.getDeviceSetIndex();
+
+        if ((deviceSetIndex >= 0) && (deviceSetIndex < (int) m_deviceUIs.size()))
+        {
+            const DeviceUISet *deviceUISet = m_deviceUIs[deviceSetIndex];
+            int deviceWorkspaceIndex = deviceUISet->m_deviceGUI->getWorkspaceIndex();
+            deviceWorkspaceIndex = deviceWorkspaceIndex < m_workspaces.size() ? deviceWorkspaceIndex : 0;
+            int channelRegistrationIndex;
+
+            if (deviceUISet->m_deviceMIMOEngine)
+            {
+                int nbMIMOChannels = deviceUISet->getNumberOfAvailableMIMOChannels();
+                int nbRxChannels = deviceUISet->getNumberOfAvailableRxChannels();
+                int direction = notif.getDirection();
+
+                if (direction == 2) {
+                    channelRegistrationIndex = notif.getChannelRegistrationIndex();
+                } else if (direction == 0) {
+                    channelRegistrationIndex = nbMIMOChannels + notif.getChannelRegistrationIndex();
+                } else {
+                    channelRegistrationIndex = nbMIMOChannels + nbRxChannels + notif.getChannelRegistrationIndex();
+                }
+            }
+            else
+            {
+                channelRegistrationIndex = notif.getChannelRegistrationIndex();
+            }
+
+            channelAddClicked(m_workspaces[deviceWorkspaceIndex], deviceSetIndex, channelRegistrationIndex);
+        }
 
         return true;
     }
-    else if (MsgDeleteChannel::match(cmd))
+    else if (MainCore::MsgDeleteChannel::match(cmd))
     {
-        MsgDeleteChannel& notif = (MsgDeleteChannel&) cmd;
+        auto& notif = (const MainCore::MsgDeleteChannel&) cmd;
         deleteChannel(notif.getDeviceSetIndex(), notif.getChannelIndex());
         return true;
     }
-    else if (MsgDeviceSetFocus::match(cmd))
+    else if (MainCore::MsgAddFeature::match(cmd))
     {
-        MsgDeviceSetFocus& notif = (MsgDeviceSetFocus&) cmd;
-        int index = notif.getDeviceSetIndex();
-        if ((index >= 0) && (index < (int) m_deviceUIs.size())) {
-            ui->tabInputsView->setCurrentIndex(index);
+        auto& notif = (const MainCore::MsgAddFeature&) cmd;
+
+        if (!m_workspaces.empty()) {
+            featureAddClicked(m_workspaces[0], notif.getFeatureRegistrationIndex());
         }
+
+        return true;
+    }
+    else if (MainCore::MsgDeleteFeature::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgDeleteFeature&) cmd;
+        deleteFeature(0, notif.getFeatureIndex());
+        return true;
+    }
+    else if (MainCore::MsgMoveDeviceUIToWorkspace::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgMoveDeviceUIToWorkspace&) cmd;
+        int deviceSetIndex = notif.getDeviceSetIndex();
+
+        if (deviceSetIndex < (int) m_deviceUIs.size())
+        {
+            DeviceUISet *deviceUISet = m_deviceUIs[deviceSetIndex];
+            DeviceGUI *gui = deviceUISet->m_deviceGUI;
+            deviceMove(gui, notif.getWorkspaceIndex());
+        }
+
+        return true;
+    }
+    else if (MainCore::MsgSetWindowHidden::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgSetWindowHidden&) cmd;
+        QMdiSubWindow *window = nullptr;
+        int workspaceIndex = -1;
+        const int deviceSetIndex = notif.getDeviceSetIndex();
+        const bool haveDeviceSet = (deviceSetIndex >= 0) && (deviceSetIndex < (int) m_deviceUIs.size());
+
+        switch (notif.getKind())
+        {
+        case MainCore::MsgSetWindowHidden::Device:
+            if (haveDeviceSet && m_deviceUIs[deviceSetIndex]->m_deviceGUI)
+            {
+                window = m_deviceUIs[deviceSetIndex]->m_deviceGUI;
+                workspaceIndex = m_deviceUIs[deviceSetIndex]->m_deviceGUI->getWorkspaceIndex();
+            }
+            break;
+        case MainCore::MsgSetWindowHidden::Spectrum:
+            if (haveDeviceSet && m_deviceUIs[deviceSetIndex]->m_mainSpectrumGUI)
+            {
+                window = m_deviceUIs[deviceSetIndex]->m_mainSpectrumGUI;
+                workspaceIndex = m_deviceUIs[deviceSetIndex]->m_mainSpectrumGUI->getWorkspaceIndex();
+            }
+            break;
+        case MainCore::MsgSetWindowHidden::Channel:
+            if (haveDeviceSet && (notif.getIndex() >= 0) && (notif.getIndex() < m_deviceUIs[deviceSetIndex]->getNumberOfChannels()))
+            {
+                ChannelGUI *gui = m_deviceUIs[deviceSetIndex]->getChannelGUIAt(notif.getIndex());
+                window = gui;
+                workspaceIndex = gui ? gui->getWorkspaceIndex() : -1;
+            }
+            break;
+        case MainCore::MsgSetWindowHidden::Feature:
+            if (!m_featureUIs.empty() && (notif.getIndex() >= 0) && (notif.getIndex() < m_featureUIs[0]->getNumberOfFeatures()))
+            {
+                FeatureGUI *gui = m_featureUIs[0]->getFeatureGuiAt(notif.getIndex());
+                window = gui;
+                workspaceIndex = gui ? gui->getWorkspaceIndex() : -1;
+            }
+            break;
+        }
+
+        if (!window) {
+            qWarning("MainWindow::handleMessages: MsgSetWindowHidden: no such window");
+        } else if (notif.getHidden()) {
+            window->hide();
+        } else {
+            showWindow(window, workspaceIndex);
+        }
+
+        return true;
+    }
+    else if (MainCore::MsgArrangeWorkspace::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgArrangeWorkspace&) cmd;
+        int workspaceIndex = notif.getWorkspaceIndex();
+
+        if ((workspaceIndex >= 0) && (workspaceIndex < (int) m_workspaces.size()))
+        {
+            Workspace *workspace = m_workspaces[workspaceIndex];
+
+            // The same as the title bar buttons: each one-shot arrangement turns auto stacking
+            // and tabs off, and either mode turns the other off
+            switch (notif.getArrangement())
+            {
+            case MainCore::MsgArrangeWorkspace::Cascade:
+                workspace->setTabSubWindowsOption(false);
+                workspace->cascadeSubWindows();
+                break;
+            case MainCore::MsgArrangeWorkspace::Tile:
+                workspace->setTabSubWindowsOption(false);
+                workspace->tileSubWindows();
+                break;
+            case MainCore::MsgArrangeWorkspace::StackVertical:
+                workspace->setTabSubWindowsOption(false);
+                workspace->stackVerticalSubWindows();
+                break;
+            case MainCore::MsgArrangeWorkspace::Stack:
+                workspace->setTabSubWindowsOption(false);
+                workspace->stackSubWindows();
+                break;
+            case MainCore::MsgArrangeWorkspace::AutoStack:
+                workspace->setTabSubWindowsOption(false);
+                workspace->setAutoStackOption(true);
+                workspace->layoutSubWindows();
+                break;
+            case MainCore::MsgArrangeWorkspace::Tab:
+                workspace->setTabSubWindowsOption(true);
+                break;
+            }
+        }
+        else
+        {
+            qWarning("MainWindow::handleMessages: MsgArrangeWorkspace: no workspace with index %d", workspaceIndex);
+        }
+
+        return true;
+    }
+    else if (MainCore::MsgMoveMainSpectrumUIToWorkspace::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgMoveMainSpectrumUIToWorkspace&) cmd;
+        int deviceSetIndex = notif.getDeviceSetIndex();
+
+        if (deviceSetIndex < (int) m_deviceUIs.size())
+        {
+            DeviceUISet *deviceUISet = m_deviceUIs[deviceSetIndex];
+            MainSpectrumGUI *gui = deviceUISet->m_mainSpectrumGUI;
+            mainSpectrumMove(gui, notif.getWorkspaceIndex());
+        }
+
+        return true;
+    }
+    else if (MainCore::MsgMoveFeatureUIToWorkspace::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgMoveFeatureUIToWorkspace&) cmd;
+        int featureIndex = notif.getFeatureIndex();
+
+        if (featureIndex < m_featureUIs[0]->getNumberOfFeatures())
+        {
+            FeatureGUI *gui = m_featureUIs[0]->getFeatureGuiAt(featureIndex);
+            featureMove(gui, notif.getWorkspaceIndex());
+        }
+
+        return true;
+    }
+    else if (MainCore::MsgMoveChannelUIToWorkspace::match(cmd))
+    {
+        auto& notif = (const MainCore::MsgMoveChannelUIToWorkspace&) cmd;
+        int deviceSetIndex = notif.getDeviceSetIndex();
+
+        if (deviceSetIndex < (int) m_deviceUIs.size())
+        {
+            int channelIndex = notif.getChannelIndex();
+            DeviceUISet *deviceUISet = m_deviceUIs[deviceSetIndex];
+
+            if (channelIndex < deviceUISet->getNumberOfChannels())
+            {
+                ChannelGUI *gui = deviceUISet->getChannelGUIAt(channelIndex);
+                channelMove(gui, notif.getWorkspaceIndex());
+            }
+        }
+
+        return true;
+    }
+    else if (MainCore::MsgApplySettings::match(cmd))
+    {
+        applySettings();
+        return true;
+    }
+    else if (MainCore::MsgDVSerial::match(cmd))
+    {
+        return true;
     }
 
     return false;
@@ -860,13 +2691,589 @@ void MainWindow::handleMessages()
 {
 	Message* message;
 
-	while ((message = m_inputMessageQueue.pop()) != 0)
+	while ((message = m_inputMessageQueue.pop()) != nullptr)
 	{
 		qDebug("MainWindow::handleMessages: message: %s", message->getIdentifier());
 		handleMessage(*message);
 		delete message;
 	}
 }
+
+void MainWindow::handleWorkspaceVisibility(Workspace *workspace, bool visibility)
+{
+    qDebug("MainWindow::handleWorkspaceHasFocus: index: %d %s",
+        workspace->getIndex(), visibility ? "visible" : "non visible");
+    m_currentWorkspace = workspace;
+}
+
+void MainWindow::setConnectionOverlayEnabled(bool enabled)
+{
+    m_connectionOverlayEnabled = enabled;
+    for (Workspace *workspace : m_workspaces) {
+        workspace->setConnectionOverlayVisible(enabled);
+    }
+    if (enabled)
+    {
+        updateConnectionOverlays();
+        m_connectionOverlayRefreshTimer.start();
+    }
+    else
+    {
+        m_connectionOverlayRefreshTimer.stop();
+    }
+}
+
+void MainWindow::updateConnectionOverlays()
+{
+    if (!m_connectionOverlayEnabled) {
+        return;
+    }
+
+    struct Endpoint {
+        QMdiSubWindow *window;
+        QString label;
+        int workspace;
+        bool feature;
+        QColor linkColor;
+        const ChannelAPI *channel;  // For its audio sample rate, if a channel
+    };
+    QHash<const QObject*, Endpoint> endpoints;
+    QList<ConnectionOverlay::Connection> connections;
+
+    // Compact sample rate for labels, e.g. 2.048M or 48k. Empty if unknown.
+    auto formatRate = [](int rate) -> QString {
+        if (rate <= 0) {
+            return QString();
+        }
+        return rate >= 1000000 ? QString::number(rate / 1e6, 'g', 4) + "M" : QString::number(rate / 1e3, 'g', 4) + "k";
+    };
+    // IQ label with the rates at each end in flow order, e.g. "IQ 2.048M → 48k".
+    auto iqLabel = [&formatRate](int fromRate, int toRate) -> QString {
+        const QString from = formatRate(fromRate);
+        const QString to = formatRate(toRate);
+        if (from.isEmpty() || to.isEmpty() || from == to) {
+            return QString("IQ %1").arg(from.isEmpty() ? to : from).trimmed();
+        }
+        return QString("IQ %1 → %2").arg(from, to);
+    };
+    auto audioLabel = [&formatRate](const Endpoint& source) -> QString {
+        const QString rate = source.channel ? formatRate(source.channel->getAudioSampleRate()) : QString();
+        return rate.isEmpty() ? QString("Audio") : QString("Audio %1").arg(rate);
+    };
+
+    for (DeviceUISet *deviceUI : m_deviceUIs)
+    {
+        if (!deviceUI || !deviceUI->m_deviceGUI) {
+            continue;
+        }
+        DeviceGUI *device = deviceUI->m_deviceGUI;
+        const QString tag = device->getDeviceType() == DeviceGUI::DeviceTx ? "T" :
+            (device->getDeviceType() == DeviceGUI::DeviceMIMO ? "M" : "R");
+        const QString deviceLabel = QString("%1:%2").arg(tag).arg(deviceUI->getIndex());
+        const QColor deviceColor = device->getDeviceTypeColor();
+        const Endpoint deviceEndpoint{device, deviceLabel, device->getWorkspaceIndex(), false, deviceColor, nullptr};
+        endpoints.insert(device, deviceEndpoint);
+        endpoints.insert(deviceUI->m_deviceAPI, deviceEndpoint);
+
+        // Device sample rate for a stream. MIMO devices have one per stream.
+        DeviceAPI *deviceAPI = deviceUI->m_deviceAPI;
+        auto deviceRate = [deviceAPI](bool tx, int stream) -> int {
+            if (DeviceSampleMIMO *mimo = deviceAPI->getSampleMIMO())
+            {
+                const unsigned int streams = tx ? mimo->getNbSinkStreams() : mimo->getNbSourceStreams();
+                if (stream < 0 || (unsigned int) stream >= streams) {
+                    return 0;
+                }
+                return tx ? mimo->getSinkSampleRate(stream) : mimo->getSourceSampleRate(stream);
+            }
+            if (DeviceSampleSource *source = deviceAPI->getSampleSource()) {
+                return source->getSampleRate();
+            }
+            if (DeviceSampleSink *sink = deviceAPI->getSampleSink()) {
+                return sink->getSampleRate();
+            }
+            return 0;
+        };
+
+        auto appendDeviceConnection = [&](QMdiSubWindow *target, const QString& label,
+                                          int targetWorkspace, ConnectionOverlay::Direction direction,
+                                          const QString& flowLabel, const QColor& color) {
+            if (!target) {
+                return;
+            }
+            ConnectionOverlay::Connection connection;
+            connection.m_source = device;
+            connection.m_target = target;
+            connection.m_sourceLabel = deviceLabel;
+            connection.m_targetLabel = label;
+            connection.m_flowLabel = flowLabel;
+            connection.m_sourceWorkspace = device->getWorkspaceIndex();
+            connection.m_targetWorkspace = targetWorkspace;
+            connection.m_direction = direction;
+            connection.m_color = color;
+            connections.append(connection);
+        };
+
+        // The spectrum always displays samples from the device, including for Tx, where
+        // the channels feed the device.
+        const ConnectionOverlay::Direction spectrumDirection = ConnectionOverlay::Forward;
+        if (deviceUI->m_mainSpectrumGUI)
+        {
+            const int spectrumRate = deviceRate(device->getDeviceType() == DeviceGUI::DeviceTx, 0);
+            appendDeviceConnection(deviceUI->m_mainSpectrumGUI, deviceLabel + " spectrum",
+                deviceUI->m_mainSpectrumGUI->getWorkspaceIndex(), spectrumDirection, iqLabel(spectrumRate, spectrumRate), deviceColor);
+        }
+        for (int channelIndex = 0; channelIndex < deviceUI->getNumberOfChannels(); ++channelIndex)
+        {
+            ChannelGUI *channel = deviceUI->getChannelGUIAt(channelIndex);
+            if (!channel) {
+                continue;
+            }
+            const QString channelLabel = QString("%1%2:%3").arg(tag).arg(deviceUI->getIndex()).arg(channel->getIndex());
+            const int type = deviceUI->getChannelTypeAt(channelIndex);
+            const ConnectionOverlay::Direction direction = type == 1 ? ConnectionOverlay::Reverse :
+                (type == 2 ? ConnectionOverlay::BothDirections : ConnectionOverlay::Forward);
+            ChannelAPI *channelAPI = deviceUI->getChannelAt(channelIndex);
+            // Show the device rate and the channel's rate after (de)channelization,
+            // in the direction the IQ flows: device to Rx channel, Tx channel to device.
+            // A channel that reports no rate (e.g. stopped) shows neither, as the device
+            // rate alone would look like the channel's.
+            const bool tx = type == 1;
+            const int chanRate = channelAPI ? channelAPI->getChannelSampleRate() : 0;
+            const int devRate = chanRate > 0 ? deviceRate(tx, channelAPI->getStreamIndex()) : 0;
+            // A Tx channel feeds the device, so its link takes the channel's colour.
+            appendDeviceConnection(channel, channelLabel, channel->getWorkspaceIndex(), direction,
+                chanRate <= 0 ? QString("IQ") : (tx ? iqLabel(chanRate, devRate) : iqLabel(devRate, chanRate)),
+                tx ? channel->getIndexLabelColor() : deviceColor);
+            const Endpoint endpoint{channel, channelLabel, channel->getWorkspaceIndex(), false,
+                channel->getIndexLabelColor(), channelAPI};
+            endpoints.insert(channel, endpoint);
+            if (channelAPI) {
+                endpoints.insert(channelAPI, endpoint);
+            }
+        }
+    }
+
+    for (FeatureUISet *featureUI : m_featureUIs)
+    {
+        if (!featureUI) {
+            continue;
+        }
+        for (int featureIndex = 0; featureIndex < featureUI->getNumberOfFeatures(); ++featureIndex)
+        {
+            FeatureGUI *featureGUI = featureUI->getFeatureGuiAt(featureIndex);
+            if (!featureGUI) {
+                continue;
+            }
+            const Endpoint endpoint{featureGUI, QString("F%1").arg(featureGUI->getIndex()),
+                featureGUI->getWorkspaceIndex(), true, QColor(), nullptr};
+            endpoints.insert(featureGUI, endpoint);
+            if (Feature *feature = featureUI->getFeatureAt(featureIndex)) {
+                endpoints.insert(feature, endpoint);
+            }
+        }
+    }
+
+    QList<ObjectPipesRegistrations::Connection> pipes = m_mainCore->getDataPipes().getConnections();
+    pipes.append(m_mainCore->getMessagePipes().getConnections());
+    // A message pipe may terminate at a helper QObject owned by a channel or
+    // feature. Walk its parent chain to find the window represented in the graph.
+    auto endpointFor = [&endpoints](const QObject *object) -> const Endpoint* {
+        for (const QObject *current = object; current; current = current->parent()) 
+        {
+            auto found = endpoints.constFind(current);
+            if (found != endpoints.constEnd()) {
+                return &found.value();
+            }
+        }
+        return nullptr;
+    };
+    QHash<QMdiSubWindow*, QHash<QMdiSubWindow*, int>> pipeConnectionIndices;
+    for (const ObjectPipesRegistrations::Connection& pipe : pipes)
+    {
+        // A feature taking a channel's demodulated audio, e.g. the Denoiser, may only
+        // subscribe to the "demod" pipe while running, but keeps its "reportdemod" pipe.
+        const bool audio = pipe.type == "demod" || pipe.type == "reportdemod";
+        const Endpoint *sourceEndpoint = endpointFor(pipe.producer);
+        const Endpoint *targetEndpoint = endpointFor(pipe.consumer);
+        if (!sourceEndpoint || !targetEndpoint) {
+            continue;
+        }
+        const Endpoint& source = *sourceEndpoint;
+        const Endpoint& target = *targetEndpoint;
+        if (source.window == target.window || (!source.feature && !target.feature)) {
+            continue;
+        }
+        const int existingIndex = pipeConnectionIndices.value(source.window).value(target.window, -1);
+        if (existingIndex >= 0)
+        {
+            if (audio) {
+                connections[existingIndex].m_flowLabel = audioLabel(source);
+            }
+            continue;
+        }
+        ConnectionOverlay::Connection connection;
+        connection.m_source = source.window;
+        connection.m_target = target.window;
+        connection.m_sourceLabel = source.label;
+        connection.m_targetLabel = target.label;
+        connection.m_flowLabel = audio ? audioLabel(source) : QString("Data");
+        connection.m_sourceWorkspace = source.workspace;
+        connection.m_targetWorkspace = target.workspace;
+        connection.m_kind = ConnectionOverlay::PipeLink;
+        connection.m_direction = ConnectionOverlay::Forward;
+        connection.m_color = source.linkColor.isValid() ? source.linkColor : target.linkColor;
+        pipeConnectionIndices[source.window].insert(target.window, connections.size());
+        connections.append(connection);
+    }
+
+    for (Workspace *workspace : m_workspaces) {
+        workspace->setConnections(connections);
+    }
+}
+
+void MainWindow::addWorkspace()
+{
+    int workspaceIndex = m_workspaces.size();
+    auto *workspace = new Workspace(workspaceIndex);
+    m_workspaces.push_back(workspace);
+    workspace->setConnectionOverlayVisible(m_connectionOverlayEnabled);
+    connect(workspace, &Workspace::connectionOverlayToggled, this, &MainWindow::setConnectionOverlayEnabled);
+    if (workspace->getMenuButton()) {
+        createMenuBar(workspace->getMenuButton());
+    }
+    QStringList featureNames;
+    m_pluginManager->listFeatures(featureNames);
+    m_workspaces.back()->addAvailableFeatures(featureNames);
+    this->addDockWidget(Qt::LeftDockWidgetArea, m_workspaces.back());
+
+    QObject::connect(
+        m_workspaces.back(),
+        &Workspace::focused,
+        this,
+        [this](Workspace *inWorkspace) { m_currentWorkspace = inWorkspace; }
+    );
+
+    QObject::connect(
+        m_workspaces.back(),
+        &Workspace::addRxDevice,
+        this,
+        [this](Workspace *inWorkspace, int deviceIndex) { this->sampleSourceAdd(inWorkspace, inWorkspace, deviceIndex); }
+    );
+
+    QObject::connect(
+        m_workspaces.back(),
+        &Workspace::addTxDevice,
+        this,
+        [this](Workspace *inWorkspace, int deviceIndex) { this->sampleSinkAdd(inWorkspace, inWorkspace, deviceIndex); }
+    );
+
+    QObject::connect(
+        m_workspaces.back(),
+        &Workspace::addMIMODevice,
+        this,
+        [this](Workspace *inWorkspace, int deviceIndex) { this->sampleMIMOAdd(inWorkspace, inWorkspace, deviceIndex); }
+    );
+
+    QObject::connect(
+        m_workspaces.back(),
+        &Workspace::addFeature,
+        this,
+        &MainWindow::featureAddClicked
+    );
+
+    QObject::connect(
+        m_workspaces.back(),
+        &Workspace::featurePresetsDialogRequested,
+        this,
+        &MainWindow::openFeaturePresetsDialog
+    );
+
+    QObject::connect(
+        m_workspaces.back(),
+        &Workspace::showMCPServer,
+        this,
+        &MainWindow::showMCPServer
+    );
+
+    QObject::connect(
+        m_workspaces.back(),
+        &Workspace::configurationPresetsDialogRequested,
+        this,
+        &MainWindow::on_action_Configurations_triggered
+    );
+
+    QObject::connect(
+        m_workspaces.back(),
+        &Workspace::startAllDevices,
+        this,
+        &MainWindow::startAllDevices
+    );
+
+    QObject::connect(
+        m_workspaces.back(),
+        &Workspace::stopAllDevices,
+        this,
+        &MainWindow::stopAllDevices
+    );
+
+    if (m_workspaces.size() > 1)
+    {
+        for (int i = 1; i < m_workspaces.size(); i++) {
+            tabifyDockWidget(m_workspaces[0], m_workspaces[i]);
+        }
+
+        m_workspaces.back()->show();
+        m_workspaces.back()->raise();
+    }
+
+    updateMCPServerButton();
+ }
+
+namespace {
+
+// R0, T1, M2... the prefix the rest of the application uses for a device set. The three GUI
+// classes each declare their own DeviceType enum, but all order them Rx, Tx, MIMO.
+QString deviceSetTag(int deviceType, int deviceSetIndex)
+{
+    static const char *const prefixes[] = {"R", "T", "M"};
+    return QString("%1%2").arg(prefixes[qBound(0, deviceType, 2)]).arg(deviceSetIndex);
+}
+
+} // namespace
+
+void MainWindow::populateShowMenu(QMenu *menu) const
+{
+    menu->clear();
+
+    // isHidden(), not isVisible(): a window sitting on a hidden workspace is not visible but
+    // was never hidden itself, and listing it here would be wrong
+    auto addEntry = [this, menu](const QString& label, QMdiSubWindow *window, int workspaceIndex)
+    {
+        QAction *action = menu->addAction(label);
+        QPointer<QMdiSubWindow> guard(window); // these are WA_DeleteOnClose
+        QObject::connect(action, &QAction::triggered, this, [this, guard, workspaceIndex]()
+        {
+            if (guard) {
+                showWindow(guard, workspaceIndex);
+            }
+        });
+    };
+
+    int hidden = 0;
+
+    for (const auto& section : {QString("Devices"), QString("Spectrums"), QString("Channels"), QString("Features")})
+    {
+        int before = hidden;
+
+        if (section == "Devices")
+        {
+            for (const auto& deviceUISet : m_deviceUIs)
+            {
+                DeviceGUI *gui = deviceUISet->m_deviceGUI;
+
+                if (gui && gui->isHidden())
+                {
+                    if (hidden++ == before) { menu->addSection(section); }
+                    addEntry(QString("%1  %2").arg(deviceSetTag(gui->getDeviceType(), gui->getIndex())).arg(gui->getTitle()),
+                        gui, gui->getWorkspaceIndex());
+                }
+            }
+        }
+        else if (section == "Spectrums")
+        {
+            for (const auto& deviceUISet : m_deviceUIs)
+            {
+                MainSpectrumGUI *gui = deviceUISet->m_mainSpectrumGUI;
+
+                if (gui && gui->isHidden())
+                {
+                    if (hidden++ == before) { menu->addSection(section); }
+                    addEntry(QString("%1  Spectrum").arg(deviceSetTag(gui->getDeviceType(), gui->getIndex())),
+                        gui, gui->getWorkspaceIndex());
+                }
+            }
+        }
+        else if (section == "Channels")
+        {
+            for (const auto& deviceUISet : m_deviceUIs)
+            {
+                for (int i = 0; i < deviceUISet->getNumberOfChannels(); i++)
+                {
+                    ChannelGUI *gui = deviceUISet->getChannelGUIAt(i);
+
+                    if (gui && gui->isHidden())
+                    {
+                        if (hidden++ == before) { menu->addSection(section); }
+                        addEntry(QString("%1:%2  %3")
+                            .arg(deviceSetTag((int) gui->getDeviceType(), gui->getDeviceSetIndex()))
+                            .arg(gui->getIndex()).arg(gui->getTitle()),
+                            gui, gui->getWorkspaceIndex());
+                    }
+                }
+            }
+        }
+        else
+        {
+            for (const auto& featureUISet : m_featureUIs)
+            {
+                for (int i = 0; i < featureUISet->getNumberOfFeatures(); i++)
+                {
+                    FeatureGUI *gui = featureUISet->getFeatureGuiAt(i);
+
+                    if (gui && gui->isHidden())
+                    {
+                        if (hidden++ == before) { menu->addSection(section); }
+                        addEntry(QString("F%1  %2").arg(gui->getIndex()).arg(gui->getTitle()),
+                            gui, gui->getWorkspaceIndex());
+                    }
+                }
+            }
+        }
+    }
+
+    if (hidden == 0)
+    {
+        QAction *none = menu->addAction("(nothing is hidden)");
+        none->setEnabled(false);
+    }
+    else
+    {
+        menu->addSeparator();
+        QAction *all = menu->addAction("Show &all");
+        all->setToolTip("Show every hidden window");
+        QObject::connect(all, &QAction::triggered, this, &MainWindow::showAllHiddenWindows);
+    }
+}
+
+Workspace *MainWindow::currentWorkspace() const
+{
+    // contains(), not a null check: the workspace may have been removed since it was
+    // recorded, which leaves m_currentWorkspace dangling
+    if (m_workspaces.contains(m_currentWorkspace) && !m_currentWorkspace->isHidden()) {
+        return m_currentWorkspace;
+    }
+
+    for (const auto& workspace : m_workspaces)
+    {
+        if (!workspace->isHidden()) {
+            return workspace;
+        }
+    }
+
+    return nullptr;
+}
+
+void MainWindow::showWindow(QMdiSubWindow *window, int workspaceIndex) const
+{
+    // Showing the window is not enough on its own if the workspace holding it is hidden
+    if ((workspaceIndex >= 0) && (workspaceIndex < m_workspaces.size()) && m_workspaces[workspaceIndex]->isHidden()) {
+        m_workspaces[workspaceIndex]->show();
+    }
+
+    window->show();
+    window->raise();
+}
+
+void MainWindow::showAllHiddenWindows() const
+{
+    for (const auto& deviceUISet : m_deviceUIs)
+    {
+        if (deviceUISet->m_deviceGUI && deviceUISet->m_deviceGUI->isHidden()) {
+            showWindow(deviceUISet->m_deviceGUI, deviceUISet->m_deviceGUI->getWorkspaceIndex());
+        }
+
+        if (deviceUISet->m_mainSpectrumGUI && deviceUISet->m_mainSpectrumGUI->isHidden()) {
+            showWindow(deviceUISet->m_mainSpectrumGUI, deviceUISet->m_mainSpectrumGUI->getWorkspaceIndex());
+        }
+
+        for (int i = 0; i < deviceUISet->getNumberOfChannels(); i++)
+        {
+            ChannelGUI *gui = deviceUISet->getChannelGUIAt(i);
+
+            if (gui && gui->isHidden()) {
+                showWindow(gui, gui->getWorkspaceIndex());
+            }
+        }
+    }
+
+    for (const auto& featureUISet : m_featureUIs)
+    {
+        for (int i = 0; i < featureUISet->getNumberOfFeatures(); i++)
+        {
+            FeatureGUI *gui = featureUISet->getFeatureGuiAt(i);
+
+            if (gui && gui->isHidden()) {
+                showWindow(gui, gui->getWorkspaceIndex());
+            }
+        }
+    }
+}
+
+void MainWindow::viewAllWorkspaces() const
+{
+    for (const auto& workspace : m_workspaces)
+    {
+        if (workspace->isHidden()) {
+            workspace->show();
+        }
+    }
+}
+
+void MainWindow::removeEmptyWorkspaces()
+{
+    auto it = m_workspaces.begin();
+
+    while (it != m_workspaces.end())
+    {
+        if ((*it)->getNumberOfSubWindows() == 0)
+        {
+            removeDockWidget(*it);
+            it = m_workspaces.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    // Renumerate
+    for (int i = 0; i < m_workspaces.size(); i++)
+    {
+        Workspace *workspace = m_workspaces[i];
+        workspace->setIndex(i);
+        QList<QMdiSubWindow *> subWindows = workspace->getSubWindowList();
+
+        for (auto& subWindow : subWindows)
+        {
+            WorkspaceWindow *window = qobject_cast<WorkspaceWindow*>(subWindow);
+
+            if (window)
+            {
+                window->setWorkspaceIndex(i);
+                window->publishWindowState();
+            }
+        }
+    }
+
+#ifdef ANDROID
+    // Need at least one workspace on Android, as no menus without
+    if (m_workspaces.size() == 0) {
+        addWorkspace();
+    }
+#endif
+}
+
+#ifdef ANDROID
+void MainWindow::on_action_View_KeepScreenOn_toggled(bool checked)
+{
+    if (checked) {
+        Android::acquireScreenLock();
+    } else {
+        Android::releaseScreenLock();
+    }
+}
+#endif
 
 void MainWindow::on_action_View_Fullscreen_toggled(bool checked)
 {
@@ -877,546 +3284,61 @@ void MainWindow::on_action_View_Fullscreen_toggled(bool checked)
 	}
 }
 
-void MainWindow::on_commandNew_clicked()
+void MainWindow::on_action_Profile_triggered()
 {
-    QStringList groups;
-    QString group = "";
-    QString description = "";
-
-    for(int i = 0; i < ui->commandTree->topLevelItemCount(); i++) {
-        groups.append(ui->commandTree->topLevelItem(i)->text(0));
-    }
-
-    QTreeWidgetItem* item = ui->commandTree->currentItem();
-
-    if(item != 0)
+    if (m_profileDialog == nullptr)
     {
-        if(item->type() == PGroup) {
-            group = item->text(0);
-        } else if(item->type() == PItem) {
-            group = item->parent()->text(0);
-            description = item->text(0);
-        }
+        m_profileDialog = new ProfileDialog();
+        new DialogPositioner(m_profileDialog, true);
     }
-
-    Command *command = new Command();
-    command->setGroup(group);
-    command->setDescription(description);
-    EditCommandDialog editCommandDialog(groups, group, this);
-    editCommandDialog.fromCommand(*command);
-
-    if (editCommandDialog.exec() == QDialog::Accepted)
-    {
-        editCommandDialog.toCommand(*command);
-        m_settings.addCommand(command);
-        ui->commandTree->setCurrentItem(addCommandToTree(command));
-        m_settings.sortCommands();
-    }
+    m_profileDialog->show();
+    m_profileDialog->raise();
 }
 
-void MainWindow::on_commandDuplicate_clicked()
+void MainWindow::commandKeysConnect(const QObject *object, const char *slot)
 {
-    QTreeWidgetItem* item = ui->commandTree->currentItem();
-    const Command* command = qvariant_cast<const Command*>(item->data(0, Qt::UserRole));
-    Command *commandCopy = new Command(*command);
-    m_settings.addCommand(commandCopy);
-    ui->commandTree->setCurrentItem(addCommandToTree(commandCopy));
-    m_settings.sortCommands();
+    setFocus();
+    connect(
+        m_commandKeyReceiver,
+        SIGNAL(capturedKey(Qt::Key, Qt::KeyboardModifiers, bool)),
+        object,
+        slot
+    );
 }
 
-void MainWindow::on_commandEdit_clicked()
+void MainWindow::commandKeysDisconnect(const QObject *object, const char *slot) const
 {
-    QTreeWidgetItem* item = ui->commandTree->currentItem();
-    bool change = false;
-    const Command *changedCommand = 0;
-    QString newGroupName;
-
-    QStringList groups;
-
-    for(int i = 0; i < ui->commandTree->topLevelItemCount(); i++) {
-        groups.append(ui->commandTree->topLevelItem(i)->text(0));
-    }
-
-    if(item != 0)
-    {
-        if (item->type() == PItem)
-        {
-            const Command* command = qvariant_cast<const Command*>(item->data(0, Qt::UserRole));
-
-            if (command != 0)
-            {
-                EditCommandDialog editCommandDialog(groups, command->getGroup(), this);
-                editCommandDialog.fromCommand(*command);
-
-                if (editCommandDialog.exec() == QDialog::Accepted)
-                {
-                    Command* command_mod = const_cast<Command*>(command);
-                    editCommandDialog.toCommand(*command_mod);
-                    change = true;
-                    changedCommand = command;
-                }
-            }
-        }
-        else if (item->type() == PGroup)
-        {
-            AddPresetDialog dlg(groups, item->text(0), this);
-            dlg.showGroupOnly();
-            dlg.setDialogTitle("Edit command group");
-            dlg.setDescriptionBoxTitle("Command details");
-
-            if (dlg.exec() == QDialog::Accepted)
-            {
-                m_settings.renameCommandGroup(item->text(0), dlg.group());
-                newGroupName = dlg.group();
-                change = true;
-            }
-        }
-    }
-
-    if (change)
-    {
-        m_settings.sortCommands();
-        ui->commandTree->clear();
-
-        for (int i = 0; i < m_settings.getCommandCount(); ++i)
-        {
-            QTreeWidgetItem *item_x = addCommandToTree(m_settings.getCommand(i));
-            const Command* command_x = qvariant_cast<const Command*>(item_x->data(0, Qt::UserRole));
-            if (changedCommand &&  (command_x == changedCommand)) { // set cursor on changed command
-                ui->commandTree->setCurrentItem(item_x);
-            }
-        }
-
-        if (!changedCommand) // on group name change set cursor on the group that has been changed
-        {
-            for(int i = 0; i < ui->commandTree->topLevelItemCount(); i++)
-            {
-                QTreeWidgetItem* item = ui->commandTree->topLevelItem(i);
-
-                if (item->text(0) == newGroupName) {
-                    ui->commandTree->setCurrentItem(item);
-                }
-            }
-        }
-    }
+    disconnect(
+        m_commandKeyReceiver,
+        SIGNAL(capturedKey(Qt::Key, Qt::KeyboardModifiers, bool)),
+        object,
+        slot
+    );
 }
 
-void MainWindow::on_commandDelete_clicked()
+void MainWindow::on_action_saveAll_triggered()
 {
-    QTreeWidgetItem* item = ui->commandTree->currentItem();
-
-    if (item != 0)
-    {
-        if (item->type() == PItem) // delete individual command
-        {
-            const Command* command = qvariant_cast<const Command*>(item->data(0, Qt::UserRole));
-
-            if(command)
-            {
-                if (QMessageBox::question(this,
-                        tr("Delete command"),
-                        tr("Do you want to delete command '%1'?")
-                            .arg(command->getDescription()), QMessageBox::No | QMessageBox::Yes, QMessageBox::No) == QMessageBox::Yes)
-                {
-                    delete item;
-                    m_settings.deleteCommand(command);
-                }
-            }
-        }
-        else if (item->type() == PGroup) // delete all commands in this group
-        {
-            if (QMessageBox::question(this,
-                    tr("Delete command group"),
-                    tr("Do you want to delete command group '%1'?")
-                        .arg(item->text(0)), QMessageBox::No | QMessageBox::Yes, QMessageBox::No) == QMessageBox::Yes)
-            {
-                m_settings.deleteCommandGroup(item->text(0));
-
-                ui->commandTree->clear();
-
-                for (int i = 0; i < m_settings.getCommandCount(); ++i) {
-                    addCommandToTree(m_settings.getCommand(i));
-                }
-            }
-        }
-    }
+    saveConfiguration(m_mainCore->m_settings.getWorkingConfiguration());
+    m_mainCore->m_settings.save();
+    QMessageBox::information(this, tr("Done"), tr("All current settings saved"));
 }
 
-void MainWindow::on_commandRun_clicked()
+void MainWindow::on_action_Welcome_triggered()
 {
-    QTreeWidgetItem* item = ui->commandTree->currentItem();
-
-    if (item != 0)
-    {
-        int currentDeviceSetIndex = ui->tabInputsSelect->currentIndex();
-
-        if (item->type() == PItem) // run individual command
-        {
-            const Command* command = qvariant_cast<const Command*>(item->data(0, Qt::UserRole));
-            Command* command_mod = const_cast<Command*>(command);
-            command_mod->run(m_apiServer->getHost(), m_apiServer->getPort(), currentDeviceSetIndex);
-        }
-        else if (item->type() == PGroup) // run all commands in this group
-        {
-            QString group = item->text(0);
-
-            for (int i = 0; i < m_settings.getCommandCount(); ++i)
-            {
-                Command *command_mod = const_cast<Command*>(m_settings.getCommand(i));
-
-                if (command_mod->getGroup() == group) {
-                    command_mod->run(m_apiServer->getHost(), m_apiServer->getPort(), currentDeviceSetIndex);
-                }
-            }
-        }
-    }
+    // Show welcome dialog
+    WelcomeDialog welcomeDialog(this);
+    new DialogPositioner(&welcomeDialog, true);
+    welcomeDialog.exec();
 }
 
-void MainWindow::on_commandOutput_clicked()
+void MainWindow::on_action_Quick_Start_triggered() const
 {
-    QTreeWidgetItem* item = ui->commandTree->currentItem();
-
-    if ((item != 0) && (item->type() == PItem))
-    {
-        const Command* command = qvariant_cast<const Command*>(item->data(0, Qt::UserRole));
-        Command* command_mod = const_cast<Command*>(command);
-        CommandOutputDialog commandOutputDialog(*command_mod);
-        commandOutputDialog.exec();
-    }
+    QDesktopServices::openUrl(QUrl("https://github.com/f4exb/sdrangel/wiki/Quick-start"));
 }
 
-void MainWindow::on_commandsSave_clicked()
+void MainWindow::on_action_Main_Window_triggered() const
 {
-    saveCommandSettings();
-    m_settings.save();
-}
-
-void MainWindow::on_commandKeyboardConnect_toggled(bool checked)
-{
-    qDebug("on_commandKeyboardConnect_toggled: %s", checked ? "true" : "false");
-
-    if (checked)
-    {
-        setFocus();
-        connect(m_commandKeyReceiver, SIGNAL(capturedKey(Qt::Key, Qt::KeyboardModifiers, bool)),
-                this, SLOT(commandKeyPressed(Qt::Key, Qt::KeyboardModifiers, bool)));
-    }
-    else
-    {
-        disconnect(m_commandKeyReceiver, SIGNAL(capturedKey(Qt::Key, Qt::KeyboardModifiers, bool)),
-                this, SLOT(commandKeyPressed(Qt::Key, Qt::KeyboardModifiers, bool)));
-    }
-}
-
-void MainWindow::on_presetSave_clicked()
-{
-    QStringList groups;
-    QString group;
-    QString description = "";
-
-    for(int i = 0; i < ui->presetTree->topLevelItemCount(); i++) {
-        groups.append(ui->presetTree->topLevelItem(i)->text(0));
-    }
-
-    QTreeWidgetItem* item = ui->presetTree->currentItem();
-
-    if(item != 0)
-    {
-        if(item->type() == PGroup) {
-            group = item->text(0);
-        } else if(item->type() == PItem) {
-            group = item->parent()->text(0);
-            description = item->text(0);
-        }
-    }
-
-    AddPresetDialog dlg(groups, group, this);
-
-    if (description.length() > 0) {
-        dlg.setDescription(description);
-    }
-
-    if(dlg.exec() == QDialog::Accepted) {
-        Preset* preset = m_settings.newPreset(dlg.group(), dlg.description());
-        savePresetSettings(preset, ui->tabInputsView->currentIndex());
-
-        ui->presetTree->setCurrentItem(addPresetToTree(preset));
-    }
-
-    m_settings.sortPresets();
-}
-
-void MainWindow::on_presetUpdate_clicked()
-{
-	QTreeWidgetItem* item = ui->presetTree->currentItem();
-	const Preset* changedPreset = 0;
-
-	if(item != 0)
-	{
-		if(item->type() == PItem)
-		{
-			const Preset* preset = qvariant_cast<const Preset*>(item->data(0, Qt::UserRole));
-
-			if (preset != 0)
-			{
-				Preset* preset_mod = const_cast<Preset*>(preset);
-				savePresetSettings(preset_mod, ui->tabInputsView->currentIndex());
-				changedPreset = preset;
-			}
-		}
-	}
-
-	m_settings.sortPresets();
-    ui->presetTree->clear();
-
-    for (int i = 0; i < m_settings.getPresetCount(); ++i)
-    {
-        QTreeWidgetItem *item_x = addPresetToTree(m_settings.getPreset(i));
-        const Preset* preset_x = qvariant_cast<const Preset*>(item_x->data(0, Qt::UserRole));
-        if (changedPreset &&  (preset_x == changedPreset)) { // set cursor on changed preset
-            ui->presetTree->setCurrentItem(item_x);
-        }
-    }
-}
-
-void MainWindow::on_presetEdit_clicked()
-{
-    QTreeWidgetItem* item = ui->presetTree->currentItem();
-    QStringList groups;
-    bool change = false;
-    const Preset *changedPreset = 0;
-    QString newGroupName;
-
-    for(int i = 0; i < ui->presetTree->topLevelItemCount(); i++) {
-        groups.append(ui->presetTree->topLevelItem(i)->text(0));
-    }
-
-    if(item != 0)
-    {
-        if (item->type() == PItem)
-        {
-            const Preset* preset = qvariant_cast<const Preset*>(item->data(0, Qt::UserRole));
-            AddPresetDialog dlg(groups, preset->getGroup(), this);
-            dlg.setDescription(preset->getDescription());
-
-            if (dlg.exec() == QDialog::Accepted)
-            {
-                Preset* preset_mod = const_cast<Preset*>(preset);
-                preset_mod->setGroup(dlg.group());
-                preset_mod->setDescription(dlg.description());
-                change = true;
-                changedPreset = preset;
-            }
-        }
-        else if (item->type() == PGroup)
-        {
-            AddPresetDialog dlg(groups, item->text(0), this);
-            dlg.showGroupOnly();
-            dlg.setDialogTitle("Edit preset group");
-
-            if (dlg.exec() == QDialog::Accepted)
-            {
-                m_settings.renamePresetGroup(item->text(0), dlg.group());
-                newGroupName = dlg.group();
-                change = true;
-            }
-        }
-    }
-
-    if (change)
-    {
-        m_settings.sortPresets();
-        ui->presetTree->clear();
-
-        for (int i = 0; i < m_settings.getPresetCount(); ++i)
-        {
-            QTreeWidgetItem *item_x = addPresetToTree(m_settings.getPreset(i));
-            const Preset* preset_x = qvariant_cast<const Preset*>(item_x->data(0, Qt::UserRole));
-            if (changedPreset &&  (preset_x == changedPreset)) { // set cursor on changed preset
-                ui->presetTree->setCurrentItem(item_x);
-            }
-        }
-
-        if (!changedPreset) // on group name change set cursor on the group that has been changed
-        {
-            for(int i = 0; i < ui->presetTree->topLevelItemCount(); i++)
-            {
-                QTreeWidgetItem* item = ui->presetTree->topLevelItem(i);
-
-                if (item->text(0) == newGroupName) {
-                    ui->presetTree->setCurrentItem(item);
-                }
-            }
-        }
-    }
-}
-
-void MainWindow::on_presetExport_clicked()
-{
-	QTreeWidgetItem* item = ui->presetTree->currentItem();
-
-	if(item != 0) {
-		if(item->type() == PItem)
-		{
-			const Preset* preset = qvariant_cast<const Preset*>(item->data(0, Qt::UserRole));
-			QString base64Str = preset->serialize().toBase64();
-			QString fileName = QFileDialog::getSaveFileName(this,
-			    tr("Open preset export file"), ".", tr("Preset export files (*.prex)"), 0, QFileDialog::DontUseNativeDialog);
-
-			if (fileName != "")
-			{
-				QFileInfo fileInfo(fileName);
-
-				if (fileInfo.suffix() != "prex") {
-					fileName += ".prex";
-				}
-
-				QFile exportFile(fileName);
-
-				if (exportFile.open(QIODevice::WriteOnly | QIODevice::Text))
-				{
-					QTextStream outstream(&exportFile);
-					outstream << base64Str;
-					exportFile.close();
-				}
-				else
-				{
-			    	QMessageBox::information(this, tr("Message"), tr("Cannot open file for writing"));
-				}
-			}
-		}
-	}
-}
-
-void MainWindow::on_presetImport_clicked()
-{
-	QTreeWidgetItem* item = ui->presetTree->currentItem();
-
-	if(item != 0)
-	{
-		QString group;
-
-		if (item->type() == PGroup)	{
-			group = item->text(0);
-		} else if (item->type() == PItem) {
-			group = item->parent()->text(0);
-		} else {
-			return;
-		}
-
-		QString fileName = QFileDialog::getOpenFileName(this,
-		    tr("Open preset export file"), ".", tr("Preset export files (*.prex)"), 0, QFileDialog::DontUseNativeDialog);
-
-		if (fileName != "")
-		{
-			QFile exportFile(fileName);
-
-			if (exportFile.open(QIODevice::ReadOnly | QIODevice::Text))
-			{
-				QByteArray base64Str;
-				QTextStream instream(&exportFile);
-				instream >> base64Str;
-				exportFile.close();
-
-				Preset* preset = m_settings.newPreset("", "");
-				preset->deserialize(QByteArray::fromBase64(base64Str));
-				preset->setGroup(group); // override with current group
-
-				ui->presetTree->setCurrentItem(addPresetToTree(preset));
-			}
-			else
-			{
-				QMessageBox::information(this, tr("Message"), tr("Cannot open file for reading"));
-			}
-		}
-	}
-}
-
-void MainWindow::on_settingsSave_clicked()
-{
-    savePresetSettings(m_settings.getWorkingPreset(), ui->tabInputsView->currentIndex());
-    m_settings.save();
-}
-
-void MainWindow::on_presetLoad_clicked()
-{
-	qDebug() << "MainWindow::on_presetLoad_clicked";
-
-	QTreeWidgetItem* item = ui->presetTree->currentItem();
-
-	if(item == 0)
-	{
-		qDebug("MainWindow::on_presetLoad_clicked: item null");
-		updatePresetControls();
-		return;
-	}
-
-	const Preset* preset = qvariant_cast<const Preset*>(item->data(0, Qt::UserRole));
-
-	if(preset == 0)
-	{
-		qDebug("MainWindow::on_presetLoad_clicked: preset null");
-		return;
-	}
-
-	loadPresetSettings(preset, ui->tabInputsView->currentIndex());
-	applySettings();
-}
-
-void MainWindow::on_presetDelete_clicked()
-{
-	QTreeWidgetItem* item = ui->presetTree->currentItem();
-
-	if (item == 0)
-	{
-		updatePresetControls();
-		return;
-	}
-	else
-	{
-        if (item->type() == PItem)
-        {
-            const Preset* preset = qvariant_cast<const Preset*>(item->data(0, Qt::UserRole));
-
-            if (preset)
-            {
-                if(QMessageBox::question(this, tr("Delete Preset"), tr("Do you want to delete preset '%1'?").arg(preset->getDescription()), QMessageBox::No | QMessageBox::Yes, QMessageBox::No) == QMessageBox::Yes) {
-                    delete item;
-                    m_settings.deletePreset(preset);
-                }
-            }
-        }
-        else if (item->type() == PGroup)
-        {
-            if (QMessageBox::question(this,
-                    tr("Delete preset group"),
-                    tr("Do you want to delete preset group '%1'?")
-                        .arg(item->text(0)), QMessageBox::No | QMessageBox::Yes, QMessageBox::No) == QMessageBox::Yes)
-            {
-                m_settings.deletePresetGroup(item->text(0));
-
-                ui->presetTree->clear();
-
-                for (int i = 0; i < m_settings.getPresetCount(); ++i) {
-                    addPresetToTree(m_settings.getPreset(i));
-                }
-            }
-        }
-	}
-}
-
-void MainWindow::on_presetTree_currentItemChanged(QTreeWidgetItem *current, QTreeWidgetItem *previous)
-{
-    (void) current;
-    (void) previous;
-	updatePresetControls();
-}
-
-void MainWindow::on_presetTree_itemActivated(QTreeWidgetItem *item, int column)
-{
-    (void) item;
-    (void) column;
-	on_presetLoad_clicked();
+    QDesktopServices::openUrl(QUrl("https://github.com/f4exb/sdrangel/blob/master/sdrgui/readme.md"));
 }
 
 void MainWindow::on_action_Loaded_Plugins_triggered()
@@ -1425,387 +3347,1112 @@ void MainWindow::on_action_Loaded_Plugins_triggered()
     pluginsDialog.exec();
 }
 
+void MainWindow::on_action_Configurations_triggered()
+{
+    openConfigurationDialog(false);
+}
+
+void MainWindow::openConfigurationDialog(bool openOnly)
+{
+    ConfigurationsDialog dialog(openOnly, this);
+    dialog.setConfigurations(m_mainCore->m_settings.getConfigurations());
+    dialog.populateTree();
+    QObject::connect(
+        &dialog,
+        &ConfigurationsDialog::saveConfiguration,
+        this,
+        &MainWindow::saveConfiguration
+    );
+    QObject::connect(
+        &dialog,
+        &ConfigurationsDialog::loadConfiguration,
+        this,
+        [this](const Configuration* configuration) { this->loadConfiguration(configuration, true); }
+    );
+    new DialogPositioner(&dialog, true);
+    dialog.exec();
+}
+
 void MainWindow::on_action_Audio_triggered()
 {
 	AudioDialogX audioDialog(m_dspEngine->getAudioDeviceManager(), this);
+    new DialogPositioner(&audioDialog, true);
 	audioDialog.exec();
+}
+
+void MainWindow::on_action_Graphics_triggered()
+{
+    GraphicsDialog graphicsDialog(m_mainCore->m_settings, this);
+    new DialogPositioner(&graphicsDialog, true);
+    graphicsDialog.exec();
 }
 
 void MainWindow::on_action_Logging_triggered()
 {
-    LoggingDialog loggingDialog(m_settings, this);
+    LoggingDialog loggingDialog(m_mainCore->m_settings, this);
+    new DialogPositioner(&loggingDialog, true);
     loggingDialog.exec();
-    setLoggingOptions();
+    m_mainCore->setLoggingOptions();
 }
 
 void MainWindow::on_action_My_Position_triggered()
 {
-	MyPositionDialog myPositionDialog(m_settings, this);
+	MyPositionDialog myPositionDialog(m_mainCore->m_settings, this);
+    new DialogPositioner(&myPositionDialog, true);
 	myPositionDialog.exec();
 }
 
-void MainWindow::on_action_DV_Serial_triggered(bool checked)
+void MainWindow::on_action_DeviceUserArguments_triggered()
 {
-    m_dspEngine->setDVSerialSupport(checked);
+    qDebug("MainWindow::on_action_DeviceUserArguments_triggered");
+    DeviceUserArgsDialog deviceUserArgsDialog(DeviceEnumerator::instance(), m_mainCore->m_settings.getDeviceUserArgs(), this);
+    new DialogPositioner(&deviceUserArgsDialog, true);
+    deviceUserArgsDialog.exec();
+}
 
-    if (checked)
+#if QT_CONFIG(process)
+void MainWindow::on_action_commands_triggered()
+{
+    qDebug("MainWindow::on_action_commands_triggered");
+    CommandsDialog commandsDialog(this);
+    commandsDialog.setApiHost(m_apiServer->getHost());
+    commandsDialog.setApiPort(m_apiServer->getPort());
+    commandsDialog.setCommandKeyReceiver(m_commandKeyReceiver);
+    commandsDialog.populateTree();
+    new DialogPositioner(&commandsDialog, true);
+    commandsDialog.exec();
+}
+#endif
+
+void MainWindow::on_action_FFT_triggered()
+{
+    qDebug("MainWindow::on_action_FFT_triggered");
+    FFTDialog fftDialog(m_mainCore->m_settings, this);
+    new DialogPositioner(&fftDialog, true);
+    fftDialog.exec();
+}
+
+#if QT_CONFIG(process)
+void MainWindow::on_action_FFTWisdom_triggered()
+{
+    qDebug("MainWindow::on_action_FFTWisdom_triggered");
+
+    if (m_fftWisdomProcess)
     {
-        if (m_dspEngine->hasDVSerialSupport())
-        {
-            std::vector<std::string> deviceNames;
-            m_dspEngine->getDVSerialNames(deviceNames);
+        QMessageBox::information(this, "FFTW Wisdom", QString("Process %1 is already running").arg(m_fftWisdomProcess->processId()));
+        return;
+    }
 
-            if (deviceNames.size() == 0)
+    m_fftWisdomProcess = new QProcess(this);
+    connect(m_fftWisdomProcess,
+        SIGNAL(finished(int, QProcess::ExitStatus)),
+        this,
+        SLOT(fftWisdomProcessFinished(int, QProcess::ExitStatus)));
+    FFTWisdomDialog fftWisdomDialog(m_fftWisdomProcess, this);
+    new DialogPositioner(&fftWisdomDialog, true);
+
+    if (fftWisdomDialog.exec() == QDialog::Rejected)
+    {
+        disconnect(m_fftWisdomProcess,
+            SIGNAL(finished(int, QProcess::ExitStatus)),
+            this,
+            SLOT(fftWisdomProcessFinished(int, QProcess::ExitStatus)));
+        delete m_fftWisdomProcess;
+        m_fftWisdomProcess = nullptr;
+    }
+    else
+    {
+        QMessageBox::information(this, "FFTW Wisdom", QString("Process %1 started").arg(m_fftWisdomProcess->processId()));
+    }
+}
+
+void MainWindow::fftWisdomProcessFinished(int exitCode, QProcess::ExitStatus exitStatus)
+{
+    qDebug("MainWindow::fftWisdomProcessFinished: process finished rc=%d (%d)", exitCode, (int) exitStatus);
+
+    if ((exitCode != 0) || (exitStatus != QProcess::NormalExit))
+    {
+        QMessageBox::critical(this, "FFTW Wisdom", "fftwf-widdsom program failed");
+    }
+    else
+    {
+        QString log = m_fftWisdomProcess->readAllStandardOutput();
+        QMessageBox::information(this, "FFTW Wisdom", QString("Success\n%1").arg(log));
+
+    }
+
+    delete m_fftWisdomProcess;
+    m_fftWisdomProcess = nullptr;
+}
+#endif
+
+void MainWindow::samplingDeviceChangeHandler(const DeviceGUI *deviceGUI, int newDeviceIndex)
+{
+    auto deviceType = (int) deviceGUI->getDeviceType();
+    int deviceSetIndex = deviceGUI->getIndex();
+    Workspace *workspace = m_workspaces[deviceGUI->getWorkspaceIndex()];
+    sampleDeviceChange(deviceType, deviceSetIndex, newDeviceIndex, workspace);
+}
+
+void MainWindow::sampleDeviceChange(int deviceType, int deviceSetIndex, int newDeviceIndex, Workspace *workspace)
+{
+    qDebug("MainWindow::sampleDeviceChange: deviceType: %d deviceSetIndex: %d newDeviceIndex: %d",
+        deviceType, deviceSetIndex, newDeviceIndex);
+    if (deviceType == 0) {
+        sampleSourceChange(deviceSetIndex, newDeviceIndex, workspace);
+    } else if (deviceType == 1) {
+        sampleSinkChange(deviceSetIndex, newDeviceIndex, workspace);
+    } else if (deviceType == 2) {
+        sampleMIMOChange(deviceSetIndex, newDeviceIndex, workspace);
+    }
+
+    emit MainCore::instance()->deviceChanged(deviceSetIndex);
+}
+
+void MainWindow::sampleSourceChange(int deviceSetIndex, int newDeviceIndex, Workspace *workspace)
+{
+    if (deviceSetIndex >= 0)
+    {
+        qDebug("MainWindow::sampleSourceChange: deviceSet %d workspace: %d", deviceSetIndex, workspace->getIndex());
+        DeviceUISet *deviceUISet = m_deviceUIs[deviceSetIndex];
+        QString deviceDescription = deviceUISet->m_deviceAPI->getSampleSource()->getDeviceDescription();
+        QByteArray settings = deviceUISet->m_deviceAPI->getSampleSource()->serialize();
+        qint64 centerFrequency = deviceUISet->m_deviceAPI->getSampleSource()->getCenterFrequency();
+        QPoint p = deviceUISet->m_deviceGUI->pos();
+        workspace->removeFromMdiArea(deviceUISet->m_deviceGUI);
+        deviceUISet->m_deviceAPI->stopDeviceEngine();
+
+        // deletes old UI and input object
+        deviceUISet->m_deviceAPI->getSampleSource()->setMessageQueueToGUI(nullptr); // have source stop sending messages to the GUI
+
+        DeviceGUI *oldDeviceGUI = deviceUISet->m_deviceGUI;
+        deviceUISet->m_deviceGUI = nullptr;
+        delete oldDeviceGUI;
+        deviceUISet->m_deviceAPI->resetSamplingDeviceId();
+        deviceUISet->m_deviceAPI->getPluginInterface()->deleteSampleSourcePluginInstanceInput(deviceUISet->m_deviceAPI->getSampleSource());
+        deviceUISet->m_deviceAPI->clearBuddiesLists(); // clear old API buddies lists
+
+        sampleSourceCreate(deviceSetIndex, newDeviceIndex, deviceUISet);
+        sampleSourceCreateUI(deviceSetIndex, newDeviceIndex, deviceUISet);
+        deviceUISet->m_deviceGUI->setWorkspaceIndex(workspace->getIndex());
+        if (deviceUISet->m_deviceAPI->getSampleSource()->getDeviceDescription() == deviceDescription)
+        {
+            if (deviceUISet->m_deviceAPI->getSampleSource()->deserialize(settings))
             {
-                QMessageBox::information(this, tr("Message"), tr("No DV serial devices found"));
-                qDebug("MainWindow::on_action_DV_Serial_triggered: No DV serial devices found");
+                deviceUISet->m_deviceAPI->getSampleSource()->setCenterFrequency(centerFrequency);
+            }
+        }
+        workspace->addToMdiArea(deviceUISet->m_deviceGUI);
+        deviceUISet->m_deviceGUI->move(p);
+
+        QObject::connect(
+            deviceUISet->m_deviceGUI,
+            &DeviceGUI::addChannelEmitted,
+            this,
+            [this, workspace, deviceSetIndex](int channelPluginIndex){ this->channelAddClicked(workspace, deviceSetIndex, channelPluginIndex); }
+        );
+    }
+}
+
+void MainWindow::sampleSinkChange(int deviceSetIndex, int newDeviceIndex, Workspace *workspace)
+{
+    if (deviceSetIndex >= 0)
+    {
+        qDebug("MainWindow::sampleSinkChange: deviceSet %d workspace: %d", deviceSetIndex, workspace->getIndex());
+        DeviceUISet *deviceUISet = m_deviceUIs[deviceSetIndex];
+        QString deviceDescription = deviceUISet->m_deviceAPI->getSampleSink()->getDeviceDescription();
+        QByteArray settings = deviceUISet->m_deviceAPI->getSampleSink()->serialize();
+        qint64 centerFrequency = deviceUISet->m_deviceAPI->getSampleSink()->getCenterFrequency();
+        QPoint p = deviceUISet->m_deviceGUI->pos();
+        workspace->removeFromMdiArea(deviceUISet->m_deviceGUI);
+        deviceUISet->m_deviceAPI->saveSamplingDeviceSettings(m_mainCore->m_settings.getWorkingPreset()); // save old API settings
+        deviceUISet->m_deviceAPI->stopDeviceEngine();
+
+        // deletes old UI and output object
+        deviceUISet->m_deviceAPI->getSampleSink()->setMessageQueueToGUI(nullptr); // have sink stop sending messages to the GUI
+        DeviceGUI *oldDeviceGUI = deviceUISet->m_deviceGUI;
+        deviceUISet->m_deviceGUI = nullptr;
+        delete oldDeviceGUI;
+        deviceUISet->m_deviceAPI->resetSamplingDeviceId();
+        deviceUISet->m_deviceAPI->getPluginInterface()->deleteSampleSinkPluginInstanceOutput(deviceUISet->m_deviceAPI->getSampleSink());
+        deviceUISet->m_deviceAPI->clearBuddiesLists(); // clear old API buddies lists
+
+        sampleSinkCreate(deviceSetIndex, newDeviceIndex, deviceUISet);
+        sampleSinkCreateUI(deviceSetIndex, newDeviceIndex, deviceUISet);
+        deviceUISet->m_deviceGUI->setWorkspaceIndex(workspace->getIndex());
+        if (deviceUISet->m_deviceAPI->getSampleSink()->getDeviceDescription() == deviceDescription)
+        {
+            if (deviceUISet->m_deviceAPI->getSampleSink()->deserialize(settings))
+            {
+                deviceUISet->m_deviceAPI->getSampleSink()->setCenterFrequency(centerFrequency);
+            }
+        }
+        workspace->addToMdiArea(deviceUISet->m_deviceGUI);
+        deviceUISet->m_deviceGUI->move(p);
+
+        QObject::connect(
+            deviceUISet->m_deviceGUI,
+            &DeviceGUI::addChannelEmitted,
+            this,
+            [this, workspace, deviceSetIndex](int channelPluginIndex){ this->channelAddClicked(workspace, deviceSetIndex, channelPluginIndex); }
+        );
+    }
+}
+
+void MainWindow::sampleMIMOChange(int deviceSetIndex, int newDeviceIndex, Workspace *workspace)
+{
+    if (deviceSetIndex >= 0)
+    {
+        qDebug("MainWindow::sampleMIMOChange: deviceSet %d workspace: %d", deviceSetIndex, workspace->getIndex());
+        DeviceUISet *deviceUISet = m_deviceUIs[deviceSetIndex];
+        QString deviceDescription = deviceUISet->m_deviceAPI->getSampleMIMO()->getDeviceDescription();
+        QByteArray settings = deviceUISet->m_deviceAPI->getSampleMIMO()->serialize();
+        quint64 sourceCenterFrequency = deviceUISet->m_deviceAPI->getSampleMIMO()->getSourceCenterFrequency(0);
+        quint64 sinkCenterFrequency = deviceUISet->m_deviceAPI->getSampleMIMO()->getSinkCenterFrequency(0);
+        QPoint p = deviceUISet->m_deviceGUI->pos();
+        workspace->removeFromMdiArea(deviceUISet->m_deviceGUI);
+        deviceUISet->m_deviceAPI->saveSamplingDeviceSettings(m_mainCore->m_settings.getWorkingPreset()); // save old API settings
+        deviceUISet->m_deviceAPI->stopDeviceEngine();
+
+        // deletes old UI and output object
+        deviceUISet->m_deviceAPI->getSampleMIMO()->setMessageQueueToGUI(nullptr); // have sink stop sending messages to the GUI
+        DeviceGUI *oldDeviceGUI = deviceUISet->m_deviceGUI;
+        deviceUISet->m_deviceGUI = nullptr;
+        delete oldDeviceGUI;
+        deviceUISet->m_deviceAPI->resetSamplingDeviceId();
+        deviceUISet->m_deviceAPI->getPluginInterface()->deleteSampleMIMOPluginInstanceMIMO(deviceUISet->m_deviceAPI->getSampleMIMO());
+
+        sampleMIMOCreate(deviceSetIndex, newDeviceIndex, deviceUISet);
+        sampleMIMOCreateUI(deviceSetIndex, newDeviceIndex, deviceUISet);
+        deviceUISet->m_deviceGUI->setWorkspaceIndex(workspace->getIndex());
+        if (deviceUISet->m_deviceAPI->getSampleMIMO()->getDeviceDescription() == deviceDescription)
+        {
+            if (deviceUISet->m_deviceAPI->getSampleMIMO()->deserialize(settings))
+            {
+                deviceUISet->m_deviceAPI->getSampleMIMO()->setSourceCenterFrequency(sourceCenterFrequency, 0);
+                deviceUISet->m_deviceAPI->getSampleMIMO()->setSinkCenterFrequency(sinkCenterFrequency, 0);
+            }
+        }
+        workspace->addToMdiArea(deviceUISet->m_deviceGUI);
+        deviceUISet->m_deviceGUI->move(p);
+
+        QObject::connect(
+            deviceUISet->m_deviceGUI,
+            &DeviceGUI::addChannelEmitted,
+            this,
+            [this, workspace, deviceSetIndex](int channelPluginIndex){ this->channelAddClicked(workspace, deviceSetIndex, channelPluginIndex); }
+        );
+    }
+}
+
+void MainWindow::channelMoveToDeviceSet(ChannelGUI *gui, int dsIndexDestination)
+{
+    int deviceSetIndex = gui->getDeviceSetIndex();
+    int channelIndex = gui->getIndex();
+    qDebug("MainWindow::channelMoveToDeviceSet: %s at %d:%d to %d",
+        qPrintable(gui->getTitle()), deviceSetIndex, channelIndex, dsIndexDestination);
+
+    if ((deviceSetIndex < (int) m_deviceUIs.size()) && (dsIndexDestination < (int) m_deviceUIs.size()))
+    {
+        DeviceUISet *deviceUI = m_deviceUIs[deviceSetIndex];
+        DeviceUISet *destDeviceUI = m_deviceUIs[dsIndexDestination];
+        ChannelAPI *channelAPI = deviceUI->getChannelAt(channelIndex);
+        deviceUI->unregisterChannelInstanceAt(channelIndex);
+
+        if (deviceUI->m_deviceSourceEngine) // source devices
+        {
+            destDeviceUI->registerRxChannelInstance(channelAPI, gui);
+        }
+        else if (deviceUI->m_deviceSinkEngine) // sink devices
+        {
+            destDeviceUI->registerTxChannelInstance(channelAPI, gui);
+        }
+        else if (deviceUI->m_deviceMIMOEngine) // MIMO devices
+        {
+            destDeviceUI->registerChannelInstance(channelAPI, gui);
+        }
+
+        gui->setIndex(channelAPI->getIndexInDeviceSet());
+        gui->setDeviceSetIndex(dsIndexDestination);
+        DeviceAPI *destDeviceAPI = destDeviceUI->m_deviceAPI;
+        gui->setIndexToolTip(destDeviceAPI->getSamplingDeviceDisplayName());
+        channelAPI->setDeviceAPI(destDeviceAPI);
+        deviceUI->removeChannelMarker(&gui->getChannelMarker());
+        destDeviceUI->addChannelMarker(&gui->getChannelMarker());
+    }
+}
+
+void MainWindow::channelDuplicate(const ChannelGUI *sourceChannelGUI)
+{
+    channelDuplicateToDeviceSet(sourceChannelGUI, sourceChannelGUI->getDeviceSetIndex()); // Duplicate in same device set
+}
+
+void MainWindow::channelDuplicateToDeviceSet(const ChannelGUI *sourceChannelGUI, int dsIndexDestination)
+{
+    int dsIndexSource = sourceChannelGUI->getDeviceSetIndex();
+    int sourceChannelIndex = sourceChannelGUI->getIndex();
+
+    qDebug("MainWindow::channelDuplicateToDeviceSet: %s at %d:%d to %d in workspace %d",
+        qPrintable(sourceChannelGUI->getTitle()), dsIndexSource, sourceChannelIndex, dsIndexDestination, sourceChannelGUI->getWorkspaceIndex());
+
+    if ((dsIndexSource < (int) m_deviceUIs.size()) && (dsIndexDestination < (int) m_deviceUIs.size()))
+    {
+        DeviceUISet *sourceDeviceUI = m_deviceUIs[dsIndexSource];
+        const ChannelAPI *sourceChannelAPI = sourceDeviceUI->getChannelAt(sourceChannelIndex);
+        ChannelGUI *destChannelGUI = nullptr;
+        DeviceUISet *destDeviceUI = m_deviceUIs[dsIndexDestination];
+
+        if (destDeviceUI->m_deviceSourceEngine) // source device => Rx channels
+        {
+            const PluginAPI::ChannelRegistrations *channelRegistrations = m_pluginManager->getRxChannelRegistrations();
+            const PluginInterface *pluginInterface = nullptr;
+
+            for (const auto& channelRegistration : *channelRegistrations)
+            {
+                if (channelRegistration.m_channelIdURI == sourceChannelAPI->getURI())
+                {
+                    pluginInterface = channelRegistration.m_plugin;
+                    break;
+                }
+            }
+
+            if (pluginInterface)
+            {
+                ChannelAPI *channelAPI;
+                BasebandSampleSink *rxChannel = nullptr;
+                pluginInterface->createRxChannel(destDeviceUI->m_deviceAPI, &rxChannel, &channelAPI);
+                destChannelGUI = pluginInterface->createRxChannelGUI(destDeviceUI, rxChannel);
+                destDeviceUI->registerRxChannelInstance(channelAPI, destChannelGUI);
+                destChannelGUI->setDeviceType(ChannelGUI::DeviceType::DeviceRx);
+                destChannelGUI->setIndex(channelAPI->getIndexInDeviceSet());
+                QByteArray b = sourceChannelGUI->serialize();
+                destChannelGUI->deserialize(b);
+            }
+        }
+        else if (destDeviceUI->m_deviceSinkEngine) // sink device => Tx channels
+        {
+            const PluginAPI::ChannelRegistrations *channelRegistrations = m_pluginManager->getTxChannelRegistrations(); // Available channel plugins
+            const PluginInterface *pluginInterface = nullptr;
+
+            for (const auto& channelRegistration : *channelRegistrations)
+            {
+                if (channelRegistration.m_channelIdURI == sourceChannelAPI->getURI())
+                {
+                    pluginInterface = channelRegistration.m_plugin;
+                    break;
+                }
+            }
+
+            if (pluginInterface)
+            {
+                ChannelAPI *channelAPI;
+                BasebandSampleSource *txChannel = nullptr;
+                pluginInterface->createTxChannel(destDeviceUI->m_deviceAPI, &txChannel, &channelAPI);
+                destChannelGUI = pluginInterface->createTxChannelGUI(destDeviceUI, txChannel);
+                destDeviceUI->registerTxChannelInstance(channelAPI, destChannelGUI);
+                destChannelGUI->setDeviceType(ChannelGUI::DeviceType::DeviceTx);
+                destChannelGUI->setIndex(channelAPI->getIndexInDeviceSet());
+                QByteArray b = sourceChannelGUI->serialize();
+                destChannelGUI->deserialize(b);
+            }
+        }
+        else if (destDeviceUI->m_deviceMIMOEngine) // MIMO device => Any type of channel is possible
+        {
+            const PluginAPI::ChannelRegistrations *rxChannelRegistrations = m_pluginManager->getRxChannelRegistrations();
+            const PluginAPI::ChannelRegistrations *txChannelRegistrations = m_pluginManager->getTxChannelRegistrations();
+            const PluginAPI::ChannelRegistrations *mimoChannelRegistrations = m_pluginManager->getMIMOChannelRegistrations();
+            const PluginInterface *pluginInterface = nullptr;
+
+            for (const auto& channelRegistration : *rxChannelRegistrations)
+            {
+                if (channelRegistration.m_channelIdURI == sourceChannelAPI->getURI())
+                {
+                    pluginInterface = channelRegistration.m_plugin;
+                    break;
+                }
+            }
+
+            if (pluginInterface) // Rx channel
+            {
+                ChannelAPI *channelAPI;
+                BasebandSampleSink *rxChannel = nullptr;
+                pluginInterface->createRxChannel(destDeviceUI->m_deviceAPI, &rxChannel, &channelAPI);
+                destChannelGUI = pluginInterface->createRxChannelGUI(destDeviceUI, rxChannel);
+                destDeviceUI->registerRxChannelInstance(channelAPI, destChannelGUI);
+                destChannelGUI->setDeviceType(ChannelGUI::DeviceType::DeviceMIMO);
+                destChannelGUI->setIndex(channelAPI->getIndexInDeviceSet());
+                QByteArray b = sourceChannelGUI->serialize();
+                destChannelGUI->deserialize(b);
             }
             else
             {
-                std::vector<std::string>::iterator it = deviceNames.begin();
-                std::string deviceNamesStr = "DV Serial devices found: ";
-
-                while (it != deviceNames.end())
+                for (const auto& channelRegistration : *txChannelRegistrations)
                 {
-                    if (it != deviceNames.begin()) {
-                        deviceNamesStr += ",";
-                    }
-
-                    deviceNamesStr += *it;
-                    ++it;
-                }
-
-                QMessageBox::information(this, tr("Message"), tr(deviceNamesStr.c_str()));
-            }
-        }
-        else
-        {
-            QMessageBox::information(this, tr("Message"), tr("No DV serial support"));
-            qDebug("MainWindow::on_action_DV_Serial_triggered: No DV serial support");
-        }
-    }
-}
-
-void MainWindow::sampleSourceChanged()
-{
-    // Do it in the currently selected source tab
-    int currentSourceTabIndex = ui->tabInputsSelect->currentIndex();
-
-    if (currentSourceTabIndex >= 0)
-    {
-        qDebug("MainWindow::sampleSourceChanged: tab at %d", currentSourceTabIndex);
-        DeviceUISet *deviceUI = m_deviceUIs[currentSourceTabIndex];
-        deviceUI->m_deviceAPI->saveSamplingDeviceSettings(m_settings.getWorkingPreset()); // save old API settings
-        deviceUI->m_deviceAPI->stopDeviceEngine();
-
-        // deletes old UI and input object
-        deviceUI->m_deviceAPI->getSampleSource()->setMessageQueueToGUI(0); // have source stop sending messages to the GUI
-        deviceUI->m_deviceAPI->getPluginInterface()->deleteSampleSourcePluginInstanceGUI(
-                deviceUI->m_deviceAPI->getSamplingDevicePluginInstanceGUI());
-        deviceUI->m_deviceAPI->resetSamplingDeviceId();
-        deviceUI->m_deviceAPI->getPluginInterface()->deleteSampleSourcePluginInstanceInput(
-                deviceUI->m_deviceAPI->getSampleSource());
-        deviceUI->m_deviceAPI->clearBuddiesLists(); // clear old API buddies lists
-
-        const PluginInterface::SamplingDevice *samplingDevice = DeviceEnumerator::instance()->getRxSamplingDevice(
-            deviceUI->m_samplingDeviceControl->getSelectedDeviceIndex());
-        deviceUI->m_deviceAPI->setSamplingDeviceSequence(samplingDevice->sequence);
-        deviceUI->m_deviceAPI->setNbItems(samplingDevice->deviceNbItems);
-        deviceUI->m_deviceAPI->setItemIndex(samplingDevice->deviceItemIndex);
-        deviceUI->m_deviceAPI->setHardwareId(samplingDevice->hardwareId);
-        deviceUI->m_deviceAPI->setSamplingDeviceId(samplingDevice->id);
-        deviceUI->m_deviceAPI->setSamplingDeviceSerial(samplingDevice->serial);
-        deviceUI->m_deviceAPI->setSamplingDeviceDisplayName(samplingDevice->displayedName);
-        deviceUI->m_deviceAPI->setSamplingDevicePluginInterface(DeviceEnumerator::instance()->getRxPluginInterface(deviceUI->m_samplingDeviceControl->getSelectedDeviceIndex()));
-
-        // add to buddies list
-        std::vector<DeviceUISet*>::iterator it = m_deviceUIs.begin();
-        int nbOfBuddies = 0;
-
-        for (; it != m_deviceUIs.end(); ++it)
-        {
-            if (*it != deviceUI) // do not add to itself
-            {
-                if ((*it)->m_deviceSourceEngine) // it is a source device
-                {
-                    if ((deviceUI->m_deviceAPI->getHardwareId() == (*it)->m_deviceAPI->getHardwareId()) &&
-                        (deviceUI->m_deviceAPI->getSamplingDeviceSerial() == (*it)->m_deviceAPI->getSamplingDeviceSerial()))
+                    if (channelRegistration.m_channelIdURI == sourceChannelAPI->getURI())
                     {
-                        (*it)->m_deviceAPI->addSourceBuddy(deviceUI->m_deviceAPI);
-                        nbOfBuddies++;
+                        pluginInterface = channelRegistration.m_plugin;
+                        break;
                     }
                 }
 
-                if ((*it)->m_deviceSinkEngine) // it is a sink device
+                if (pluginInterface) // Tx channel
                 {
-                    if ((deviceUI->m_deviceAPI->getHardwareId() == (*it)->m_deviceAPI->getHardwareId()) &&
-                        (deviceUI->m_deviceAPI->getSamplingDeviceSerial() == (*it)->m_deviceAPI->getSamplingDeviceSerial()))
+                    ChannelAPI *channelAPI;
+                    BasebandSampleSource *txChannel = nullptr;
+                    pluginInterface->createTxChannel(destDeviceUI->m_deviceAPI, &txChannel, &channelAPI);
+                    destChannelGUI = pluginInterface->createTxChannelGUI(destDeviceUI, txChannel);
+                    destDeviceUI->registerTxChannelInstance(channelAPI, destChannelGUI);
+                    destChannelGUI->setDeviceType(ChannelGUI::DeviceType::DeviceMIMO);
+                    destChannelGUI->setIndex(channelAPI->getIndexInDeviceSet());
+                    QByteArray b = sourceChannelGUI->serialize();
+                    destChannelGUI->deserialize(b);
+                }
+                else
+                {
+                    for (const auto& channelRegistration : *mimoChannelRegistrations)
                     {
-                        (*it)->m_deviceAPI->addSourceBuddy(deviceUI->m_deviceAPI);
-                        nbOfBuddies++;
+                        if (channelRegistration.m_channelIdURI == sourceChannelAPI->getURI())
+                        {
+                            pluginInterface = channelRegistration.m_plugin;
+                            break;
+                        }
+                    }
+
+                    if (pluginInterface)
+                    {
+                        ChannelAPI *channelAPI;
+                        MIMOChannel *mimoChannel = nullptr;
+                        pluginInterface->createMIMOChannel(destDeviceUI->m_deviceAPI, &mimoChannel, &channelAPI);
+                        destChannelGUI = pluginInterface->createMIMOChannelGUI(destDeviceUI, mimoChannel);
+                        destDeviceUI->registerChannelInstance(channelAPI, destChannelGUI);
+                        destChannelGUI->setDeviceType(ChannelGUI::DeviceType::DeviceMIMO);
+                        destChannelGUI->setIndex(channelAPI->getIndexInDeviceSet());
+                        QByteArray b = sourceChannelGUI->serialize();
+                        destChannelGUI->deserialize(b);
                     }
                 }
             }
         }
 
-        if (nbOfBuddies == 0) {
-            deviceUI->m_deviceAPI->setBuddyLeader(true);
-        }
+        const DeviceAPI *destDeviceAPI = destDeviceUI->m_deviceAPI;
+        int workspaceIndex = sourceChannelGUI->getWorkspaceIndex();
+        Workspace *workspace = workspaceIndex < m_workspaces.size() ? m_workspaces[sourceChannelGUI->getWorkspaceIndex()] : nullptr;
 
-        // constructs new GUI and input object
-        DeviceSampleSource *source = deviceUI->m_deviceAPI->getPluginInterface()->createSampleSourcePluginInstanceInput(
-                deviceUI->m_deviceAPI->getSamplingDeviceId(), deviceUI->m_deviceAPI);
-        deviceUI->m_deviceAPI->setSampleSource(source);
-        QWidget *gui;
-        PluginInstanceGUI *pluginUI = deviceUI->m_deviceAPI->getPluginInterface()->createSampleSourcePluginInstanceGUI(
-                deviceUI->m_deviceAPI->getSamplingDeviceId(),
-                &gui,
-                deviceUI);
-        deviceUI->m_deviceAPI->getSampleSource()->setMessageQueueToGUI(pluginUI->getInputMessageQueue());
-        deviceUI->m_deviceAPI->setSamplingDevicePluginInstanceGUI(pluginUI);
-        setDeviceGUI(currentSourceTabIndex, gui, deviceUI->m_deviceAPI->getSamplingDeviceDisplayName());
-        deviceUI->m_deviceAPI->getSampleSource()->init();
-
-        deviceUI->m_deviceAPI->loadSamplingDeviceSettings(m_settings.getWorkingPreset()); // load new API settings
-
-        if (currentSourceTabIndex == 0) // save as default starting device
+        if (destChannelGUI && workspace)
         {
-            m_settings.setSourceIndex(samplingDevice->sequence);
-            m_settings.setSourceDeviceId(samplingDevice->id);
+            QObject::connect(
+                destChannelGUI,
+                &ChannelGUI::moveToWorkspace,
+                this,
+                [this, destChannelGUI](int wsIndexDest){ this->channelMove(destChannelGUI, wsIndexDest); }
+            );
+            QObject::connect(
+                destChannelGUI,
+                &ChannelGUI::duplicateChannelEmitted,
+                this,
+                [this, destChannelGUI](){ this->channelDuplicate(destChannelGUI); }
+            );
+            QObject::connect(
+                destChannelGUI,
+                &ChannelGUI::moveToDeviceSet,
+                this,
+                [this, destChannelGUI](int dsIndexDest){ this->channelMoveToDeviceSet(destChannelGUI, dsIndexDest); }
+            );
+
+            destChannelGUI->setDeviceSetIndex(dsIndexDestination);
+            destChannelGUI->setIndexToolTip(destDeviceAPI->getSamplingDeviceDisplayName());
+            destChannelGUI->setWorkspaceIndex(workspace->getIndex());
+            qDebug("MainWindow::channelDuplicate: adding %s to workspace #%d",
+                qPrintable(destChannelGUI->getTitle()), workspace->getIndex());
+            workspace->addToMdiArea((QMdiSubWindow*) destChannelGUI);
         }
     }
 }
 
-void MainWindow::sampleSinkChanged()
+void MainWindow::channelAddClicked(Workspace *workspace, int deviceSetIndex, int channelPluginIndex)
 {
-    // Do it in the currently selected source tab
-    int currentSinkTabIndex = ui->tabInputsSelect->currentIndex();
-
-    if (currentSinkTabIndex >= 0)
+    if (deviceSetIndex < (int) m_deviceUIs.size())
     {
-        qDebug("MainWindow::sampleSinkChanged: tab at %d", currentSinkTabIndex);
-        DeviceUISet *deviceUI = m_deviceUIs[currentSinkTabIndex];
-        deviceUI->m_deviceAPI->saveSamplingDeviceSettings(m_settings.getWorkingPreset()); // save old API settings
-        deviceUI->m_deviceAPI->stopDeviceEngine();
-
-        // deletes old UI and output object
-        deviceUI->m_deviceAPI->getSampleSink()->setMessageQueueToGUI(0); // have sink stop sending messages to the GUI
-        deviceUI->m_deviceAPI->getPluginInterface()->deleteSampleSourcePluginInstanceGUI(
-                deviceUI->m_deviceAPI->getSamplingDevicePluginInstanceGUI());
-        deviceUI->m_deviceAPI->resetSamplingDeviceId();
-        deviceUI->m_deviceAPI->getPluginInterface()->deleteSampleSinkPluginInstanceOutput(
-                deviceUI->m_deviceAPI->getSampleSink());
-        deviceUI->m_deviceAPI->clearBuddiesLists(); // clear old API buddies lists
-
-        const PluginInterface::SamplingDevice *samplingDevice = DeviceEnumerator::instance()->getTxSamplingDevice(deviceUI->m_samplingDeviceControl->getSelectedDeviceIndex());
-        deviceUI->m_deviceAPI->setSamplingDeviceSequence(samplingDevice->sequence);
-        deviceUI->m_deviceAPI->setNbItems(samplingDevice->deviceNbItems);
-        deviceUI->m_deviceAPI->setItemIndex(samplingDevice->deviceItemIndex);
-        deviceUI->m_deviceAPI->setHardwareId(samplingDevice->hardwareId);
-        deviceUI->m_deviceAPI->setSamplingDeviceId(samplingDevice->id);
-        deviceUI->m_deviceAPI->setSamplingDeviceSerial(samplingDevice->serial);
-        deviceUI->m_deviceAPI->setSamplingDeviceDisplayName(samplingDevice->displayedName);
-        deviceUI->m_deviceAPI->setSamplingDevicePluginInterface(DeviceEnumerator::instance()->getTxPluginInterface(deviceUI->m_samplingDeviceControl->getSelectedDeviceIndex()));
-
-        // add to buddies list
-        std::vector<DeviceUISet*>::iterator it = m_deviceUIs.begin();
-        int nbOfBuddies = 0;
-
-        for (; it != m_deviceUIs.end(); ++it)
-        {
-            if (*it != deviceUI) // do not add to itself
-            {
-                if ((*it)->m_deviceSourceEngine) // it is a source device
-                {
-                    if ((deviceUI->m_deviceAPI->getHardwareId() == (*it)->m_deviceAPI->getHardwareId()) &&
-                        (deviceUI->m_deviceAPI->getSamplingDeviceSerial() == (*it)->m_deviceAPI->getSamplingDeviceSerial()))
-                    {
-                        (*it)->m_deviceAPI->addSinkBuddy(deviceUI->m_deviceAPI);
-                        nbOfBuddies++;
-                    }
-                }
-
-                if ((*it)->m_deviceSinkEngine) // it is a sink device
-                {
-                    if ((deviceUI->m_deviceAPI->getHardwareId() == (*it)->m_deviceAPI->getHardwareId()) &&
-                        (deviceUI->m_deviceAPI->getSamplingDeviceSerial() == (*it)->m_deviceAPI->getSamplingDeviceSerial()))
-                    {
-                        (*it)->m_deviceAPI->addSinkBuddy(deviceUI->m_deviceAPI);
-                        nbOfBuddies++;
-                    }
-                }
-            }
-        }
-
-        if (nbOfBuddies == 0) {
-            deviceUI->m_deviceAPI->setBuddyLeader(true);
-        }
-
-        // constructs new GUI and output object
-        DeviceSampleSink *sink = deviceUI->m_deviceAPI->getPluginInterface()->createSampleSinkPluginInstanceOutput(
-                deviceUI->m_deviceAPI->getSamplingDeviceId(), deviceUI->m_deviceAPI);
-        deviceUI->m_deviceAPI->setSampleSink(sink);
-        QWidget *gui;
-        PluginInstanceGUI *pluginUI = deviceUI->m_deviceAPI->getPluginInterface()->createSampleSinkPluginInstanceGUI(
-                deviceUI->m_deviceAPI->getSamplingDeviceId(),
-                &gui,
-                deviceUI);
-        deviceUI->m_deviceAPI->getSampleSink()->setMessageQueueToGUI(pluginUI->getInputMessageQueue());
-        deviceUI->m_deviceAPI->setSamplingDevicePluginInstanceGUI(pluginUI);
-        setDeviceGUI(currentSinkTabIndex, gui, deviceUI->m_deviceAPI->getSamplingDeviceDisplayName(), false);
-        m_deviceUIs.back()->m_deviceAPI->getSampleSink()->init();
-
-        deviceUI->m_deviceAPI->loadSamplingDeviceSettings(m_settings.getWorkingPreset()); // load new API settings
-    }
-}
-
-void MainWindow::channelAddClicked(bool checked)
-{
-    (void) checked;
-    // Do it in the currently selected source tab
-    int currentSourceTabIndex = ui->tabInputsSelect->currentIndex();
-
-    if (currentSourceTabIndex >= 0)
-    {
-        DeviceUISet *deviceUI = m_deviceUIs[currentSourceTabIndex];
+        DeviceUISet *deviceUI = m_deviceUIs[deviceSetIndex];
+        ChannelGUI *gui;
+        ChannelAPI *channelAPI;
+        const DeviceAPI *deviceAPI = deviceUI->m_deviceAPI;
 
         if (deviceUI->m_deviceSourceEngine) // source device => Rx channels
         {
-            m_pluginManager->createRxChannelInstance(
-                deviceUI->m_samplingDeviceControl->getChannelSelector()->currentIndex(), deviceUI, deviceUI->m_deviceAPI);
+            PluginAPI::ChannelRegistrations *channelRegistrations = m_pluginManager->getRxChannelRegistrations(); // Available channel plugins
+            const PluginInterface *pluginInterface = (*channelRegistrations)[channelPluginIndex].m_plugin;
+            BasebandSampleSink *rxChannel = nullptr;
+            pluginInterface->createRxChannel(deviceUI->m_deviceAPI, &rxChannel, &channelAPI);
+            gui = pluginInterface->createRxChannelGUI(deviceUI, rxChannel);
+            deviceUI->registerRxChannelInstance(channelAPI, gui);
+            gui->setDeviceType(ChannelGUI::DeviceType::DeviceRx);
+            gui->setIndex(channelAPI->getIndexInDeviceSet());
+            gui->setDisplayedame(pluginInterface->getPluginDescriptor().displayedName);
         }
         else if (deviceUI->m_deviceSinkEngine) // sink device => Tx channels
         {
-            m_pluginManager->createTxChannelInstance(
-                deviceUI->m_samplingDeviceControl->getChannelSelector()->currentIndex(), deviceUI, deviceUI->m_deviceAPI);
+            PluginAPI::ChannelRegistrations *channelRegistrations = m_pluginManager->getTxChannelRegistrations(); // Available channel plugins
+            const PluginInterface *pluginInterface = (*channelRegistrations)[channelPluginIndex].m_plugin;
+            BasebandSampleSource *txChannel = nullptr;
+            pluginInterface->createTxChannel(deviceUI->m_deviceAPI, &txChannel, &channelAPI);
+            gui = pluginInterface->createTxChannelGUI(deviceUI, txChannel);
+            deviceUI->registerTxChannelInstance(channelAPI, gui);
+            gui->setDeviceType(ChannelGUI::DeviceType::DeviceTx);
+            gui->setIndex(channelAPI->getIndexInDeviceSet());
+            gui->setDisplayedame(pluginInterface->getPluginDescriptor().displayedName);
+        }
+        else if (deviceUI->m_deviceMIMOEngine) // MIMO device => all possible channels. Depends on index range
+        {
+            int nbMIMOChannels = deviceUI->getNumberOfAvailableMIMOChannels();
+            int nbRxChannels = deviceUI->getNumberOfAvailableRxChannels();
+            int nbTxChannels = deviceUI->getNumberOfAvailableTxChannels();
+            qDebug("MainWindow::channelAddClicked: MIMO: dev %d : nbMIMO: %d nbRx: %d nbTx: %d selected: %d",
+                deviceSetIndex, nbMIMOChannels, nbRxChannels, nbTxChannels, channelPluginIndex);
+
+            if (channelPluginIndex < nbMIMOChannels)
+            {
+                PluginAPI::ChannelRegistrations *channelRegistrations = m_pluginManager->getMIMOChannelRegistrations(); // Available channel plugins
+                const PluginInterface *pluginInterface = (*channelRegistrations)[channelPluginIndex].m_plugin;
+                MIMOChannel *mimoChannel = nullptr;
+                pluginInterface->createMIMOChannel(deviceUI->m_deviceAPI, &mimoChannel, &channelAPI);
+                gui = pluginInterface->createMIMOChannelGUI(deviceUI, mimoChannel);
+                deviceUI->registerChannelInstance(channelAPI, gui);
+                gui->setIndex(channelAPI->getIndexInDeviceSet());
+                gui->setDisplayedame(pluginInterface->getPluginDescriptor().displayedName);
+            }
+            else if (channelPluginIndex < nbMIMOChannels + nbRxChannels) // Rx
+            {
+                PluginAPI::ChannelRegistrations *channelRegistrations = m_pluginManager->getRxChannelRegistrations(); // Available channel plugins
+                const PluginInterface *pluginInterface = (*channelRegistrations)[channelPluginIndex - nbMIMOChannels].m_plugin;
+                BasebandSampleSink *rxChannel = nullptr;
+                pluginInterface->createRxChannel(deviceUI->m_deviceAPI, &rxChannel, &channelAPI);
+                gui = pluginInterface->createRxChannelGUI(deviceUI, rxChannel);
+                deviceUI->registerRxChannelInstance(channelAPI, gui);
+                gui->setIndex(channelAPI->getIndexInDeviceSet());
+                gui->setDisplayedame(pluginInterface->getPluginDescriptor().displayedName);
+            }
+            else if (channelPluginIndex < nbMIMOChannels + nbRxChannels + nbTxChannels)
+            {
+                PluginAPI::ChannelRegistrations *channelRegistrations = m_pluginManager->getTxChannelRegistrations(); // Available channel plugins
+                const PluginInterface *pluginInterface = (*channelRegistrations)[channelPluginIndex - nbMIMOChannels - nbRxChannels].m_plugin;
+                BasebandSampleSource *txChannel = nullptr;
+                pluginInterface->createTxChannel(deviceUI->m_deviceAPI, &txChannel, &channelAPI);
+                gui = pluginInterface->createTxChannelGUI(deviceUI, txChannel);
+                deviceUI->registerTxChannelInstance(channelAPI, gui);
+                gui->setIndex(channelAPI->getIndexInDeviceSet());
+                gui->setDisplayedame(pluginInterface->getPluginDescriptor().displayedName);
+            }
+            else
+            {
+                return;
+            }
+
+            gui->setDeviceType(ChannelGUI::DeviceType::DeviceMIMO);
+        }
+        else
+        {
+            return;
+        }
+
+        if (gui)
+        {
+            QObject::connect(
+                gui,
+                &ChannelGUI::moveToWorkspace,
+                this,
+                [this, gui](int wsIndexDest){ this->channelMove(gui, wsIndexDest); }
+            );
+            QObject::connect(
+                gui,
+                &ChannelGUI::duplicateChannelEmitted,
+                this,
+                [this, gui](){ this->channelDuplicate(gui); }
+            );
+            QObject::connect(
+                gui,
+                &ChannelGUI::moveToDeviceSet,
+                this,
+                [this, gui](int dsIndexDest){ this->channelMoveToDeviceSet(gui, dsIndexDest); }
+            );
+
+            gui->setDeviceSetIndex(deviceSetIndex);
+            gui->setIndexToolTip(deviceAPI->getSamplingDeviceDisplayName());
+            gui->setWorkspaceIndex(workspace->getIndex());
+            qDebug("MainWindow::channelAddClicked: adding %s to workspace #%d",
+                qPrintable(gui->getTitle()), workspace->getIndex());
+            workspace->addToMdiArea((QMdiSubWindow*) gui);
+            loadDefaultPreset(channelAPI->getURI(), gui);
+        }
+    }
+}
+
+void MainWindow::featureAddClicked(Workspace *workspace, int featureIndex)
+{
+    qDebug("MainWindow::featureAddClicked: W%d feature at %d", workspace->getIndex(), featureIndex);
+
+    int currentFeatureSetIndex = 0; // Do it in the unique set
+    FeatureUISet *featureUISet = m_featureUIs[currentFeatureSetIndex];
+    qDebug("MainWindow::featureAddClicked: m_apiAdapter: %p", m_apiAdapter);
+    PluginAPI::FeatureRegistrations *featureRegistrations = m_pluginManager->getFeatureRegistrations(); // Available feature plugins
+    const PluginInterface *pluginInterface = (*featureRegistrations)[featureIndex].m_plugin;
+    Feature *feature = pluginInterface->createFeature(m_apiAdapter);
+    FeatureGUI *gui = pluginInterface->createFeatureGUI(featureUISet, feature);
+    featureUISet->registerFeatureInstance(gui, feature);
+    gui->setIndex(feature->getIndexInFeatureSet());
+    gui->setWorkspaceIndex(workspace->getIndex());
+    gui->setDisplayedame(pluginInterface->getPluginDescriptor().displayedName);
+    workspace->addToMdiArea((QMdiSubWindow*) gui);
+    loadDefaultPreset(feature->getURI(), gui);
+
+    QObject::connect(
+        gui,
+        &FeatureGUI::moveToWorkspace,
+        this,
+        [this, gui](int wsIndexDest){ this->featureMove(gui, wsIndexDest); }
+    );
+}
+
+void MainWindow::featureMove(FeatureGUI *gui, int wsIndexDestnation)
+{
+    int wsIndexOrigin = gui->getWorkspaceIndex();
+
+    if (wsIndexOrigin == wsIndexDestnation) {
+        return;
+    }
+
+    m_workspaces[wsIndexOrigin]->removeFromMdiArea(gui);
+    gui->setWorkspaceIndex(wsIndexDestnation);
+    m_workspaces[wsIndexDestnation]->addToMdiArea(gui);
+}
+
+void MainWindow::deviceMove(DeviceGUI *gui, int wsIndexDestnation)
+{
+    int wsIndexOrigin = gui->getWorkspaceIndex();
+    qDebug("MainWindow::deviceMove: %s from %d to %d",
+        qPrintable(gui->getTitle()), wsIndexOrigin, wsIndexDestnation);
+
+    if (wsIndexOrigin == wsIndexDestnation) {
+        return;
+    }
+
+    m_workspaces[wsIndexOrigin]->removeFromMdiArea(gui);
+    gui->setWorkspaceIndex(wsIndexDestnation);
+    m_workspaces[wsIndexDestnation]->addToMdiArea(gui);
+}
+
+void MainWindow::channelMove(ChannelGUI *gui, int wsIndexDestnation)
+{
+    int wsIndexOrigin = gui->getWorkspaceIndex();
+
+    if (wsIndexOrigin == wsIndexDestnation) {
+        return;
+    }
+
+    m_workspaces[wsIndexOrigin]->removeFromMdiArea(gui);
+    gui->setWorkspaceIndex(wsIndexDestnation);
+    m_workspaces[wsIndexDestnation]->addToMdiArea(gui);
+}
+
+void MainWindow::mainSpectrumMove(MainSpectrumGUI *gui, int wsIndexDestnation)
+{
+    int wsIndexOrigin = gui->getWorkspaceIndex();
+    qDebug("MainWindow::mainSpectrumMove: %s from %d to %d",
+        qPrintable(gui->getTitle()), wsIndexOrigin, wsIndexDestnation);
+
+    if (wsIndexOrigin == wsIndexDestnation) {
+        return;
+    }
+
+    m_workspaces[wsIndexOrigin]->removeFromMdiArea(gui);
+    gui->setWorkspaceIndex(wsIndexDestnation);
+    m_workspaces[wsIndexDestnation]->addToMdiArea(gui);
+}
+
+void MainWindow::mainSpectrumShow(int deviceSetIndex)
+{
+    DeviceUISet *deviceUISet = m_deviceUIs[deviceSetIndex];
+    deviceUISet->m_mainSpectrumGUI->show();
+    deviceUISet->m_mainSpectrumGUI->raise();
+}
+
+void MainWindow::mainSpectrumRequestDeviceCenterFrequency(int deviceSetIndex, qint64 deviceCenterFrequency)
+{
+    DeviceUISet *deviceUISet = m_deviceUIs[deviceSetIndex];
+    DeviceAPI *deviceAPI = deviceUISet->m_deviceAPI;
+
+    if (deviceAPI->getSampleSource()) {
+        deviceAPI->getSampleSource()->setCenterFrequency(deviceCenterFrequency);
+    } else if (deviceAPI->getSampleSink()) {
+        deviceAPI->getSampleSink()->setCenterFrequency(deviceCenterFrequency);
+    }
+    // Not implemented for MIMO
+}
+
+void MainWindow::showAllChannels(int deviceSetIndex)
+{
+    DeviceUISet *deviceUISet = m_deviceUIs[deviceSetIndex];
+
+    for (int i = 0; i < deviceUISet->getNumberOfChannels(); i++)
+    {
+        deviceUISet->getChannelGUIAt(i)->show();
+        deviceUISet->getChannelGUIAt(i)->raise();
+    }
+}
+
+void MainWindow::startRemoteTCPSink()
+{
+    RemoteTCPSinkStarter::start(m_parser);
+}
+
+void MainWindow::startMCPServer()
+{
+    static const QString mcpServerURI = QStringLiteral("sdrangel.feature.mcpserver");
+    int featureSetIndex = -1;
+    int featureIndex = -1;
+    Feature *mcpServer = FeatureWebAPIUtils::getFeature(featureSetIndex, featureIndex, mcpServerURI);
+
+    if (!mcpServer)
+    {
+        PluginAPI::FeatureRegistrations *featureRegistrations = m_pluginManager->getFeatureRegistrations();
+        int registrationIndex = -1;
+
+        for (int i = 0; i < featureRegistrations->size(); i++)
+        {
+            if ((*featureRegistrations)[i].m_featureIdURI == mcpServerURI)
+            {
+                registrationIndex = i;
+                break;
+            }
+        }
+
+        if (registrationIndex < 0)
+        {
+            qWarning("MainWindow::startMCPServer: MCPServer plugin is not available");
+            return;
+        }
+
+        if (m_workspaces.empty())
+        {
+            qWarning("MainWindow::startMCPServer: no workspace is available for the MCPServer feature");
+            return;
+        }
+
+        featureAddClicked(m_workspaces[0], registrationIndex);
+        featureSetIndex = -1;
+        featureIndex = -1;
+        mcpServer = FeatureWebAPIUtils::getFeature(featureSetIndex, featureIndex, mcpServerURI);
+
+        if (!mcpServer)
+        {
+            qWarning("MainWindow::startMCPServer: failed to create the MCPServer feature");
+            return;
+        }
+    }
+
+    if (!FeatureWebAPIUtils::run(featureSetIndex, featureIndex)) {
+        qWarning("MainWindow::startMCPServer: failed to start the MCPServer feature");
+    } else if (mcpServer->getState() == Feature::StRunning) {
+        FeatureGUI *gui = getMCPServerGUI();
+
+        if (gui) {
+            gui->hide();
+        }
+    }
+}
+
+FeatureGUI *MainWindow::getMCPServerGUI(Feature **feature) const
+{
+    for (FeatureUISet *featureUISet : m_featureUIs)
+    {
+        for (int i = 0; i < featureUISet->getNumberOfFeatures(); i++)
+        {
+            Feature *candidate = featureUISet->getFeatureAt(i);
+
+            if (isMCPServerFeature(candidate))
+            {
+                if (feature) {
+                    *feature = candidate;
+                }
+
+                return featureUISet->getFeatureGuiAt(i);
+            }
+        }
+    }
+
+    if (feature) {
+        *feature = nullptr;
+    }
+
+    return nullptr;
+}
+
+void MainWindow::updateMCPServerButton()
+{
+    Feature *feature = nullptr;
+    FeatureGUI *gui = getMCPServerGUI(&feature);
+    bool available = gui != nullptr;
+    bool running = feature && (feature->getState() == Feature::StRunning);
+    int port = -1;
+
+    if (running)
+    {
+        SWGSDRangel::SWGFeatureSettings response;
+        QString errorMessage;
+
+        if ((feature->webapiSettingsGet(response, errorMessage) / 100 == 2)
+            && response.getMcpServerSettings())
+        {
+            port = response.getMcpServerSettings()->getPort();
+        }
+    }
+
+    for (Workspace *workspace : m_workspaces) {
+        workspace->updateMCPServerButton(available, running, port);
+    }
+}
+
+void MainWindow::showMCPServer()
+{
+    FeatureGUI *gui = getMCPServerGUI();
+
+    if (!gui) {
+        return;
+    }
+
+    int workspaceIndex = gui->getWorkspaceIndex();
+
+    if ((workspaceIndex >= 0) && (workspaceIndex < m_workspaces.size()))
+    {
+        m_workspaces[workspaceIndex]->show();
+        m_workspaces[workspaceIndex]->raise();
+    }
+
+    gui->show();
+    gui->raise();
+    gui->setFocus(Qt::OtherFocusReason);
+}
+
+void MainWindow::mcpServerFeatureAdded(int featureSetIndex, Feature *feature)
+{
+    (void) featureSetIndex;
+
+    if (!isMCPServerFeature(feature)) {
+        return;
+    }
+
+    connect(feature, &Feature::stateChanged, this, &MainWindow::updateMCPServerButton, Qt::UniqueConnection);
+    connect(feature, &QObject::destroyed, this, [this]() {
+        QTimer::singleShot(0, this, &MainWindow::updateMCPServerButton);
+    });
+    updateMCPServerButton();
+}
+
+void MainWindow::mcpServerFeatureRemoved(int featureSetIndex, Feature *feature)
+{
+    (void) featureSetIndex;
+
+    if (isMCPServerFeature(feature))
+    {
+        disconnect(feature, &Feature::stateChanged, this, &MainWindow::updateMCPServerButton);
+        QTimer::singleShot(0, this, &MainWindow::updateMCPServerButton);
+    }
+}
+
+bool MainWindow::isMCPServerFeature(const Feature* feature)
+{
+    return feature && (feature->getURI() == QStringLiteral("sdrangel.feature.mcpserver"));
+}
+
+void MainWindow::startAllAfterDelay()
+{
+    // Wait a little bit before starting all devices and features,
+    // as some devices, such as FileSinks, can fail to start if run before initialised
+    // Is there a better way than this arbitrary time?
+    QTimer::singleShot(1000, this, &MainWindow::startAll);
+}
+
+// Start all devices and features in all workspaces
+void MainWindow::startAll()
+{
+    // Start all devices
+    for (const auto& workspace : m_workspaces) {
+        startAllDevices(workspace);
+    }
+    // Start all features
+    for (std::size_t featureSetIndex = 0; featureSetIndex < m_featureUIs.size(); featureSetIndex++)
+    {
+        for (int featureIndex = 0; featureIndex < m_featureUIs[featureSetIndex]->getNumberOfFeatures(); featureIndex++) {
+            FeatureWebAPIUtils::run(featureSetIndex, featureIndex);
+        }
+    }
+}
+
+// Start all devices in the workspace
+void MainWindow::startAllDevices(const Workspace *workspace) const
+{
+    int workspaceIndex = workspace->getIndex();
+    for (auto deviceUI : m_deviceUIs)
+    {
+        if (deviceUI->m_deviceAPI->getWorkspaceIndex() == workspaceIndex)
+        {
+            // We use WebAPI rather than call deviceUI->m_deviceAPI->startDeviceEngine();
+            // so that the start/stop button in the Device GUI is correctly updated
+            int deviceIndex = deviceUI->m_deviceAPI->getDeviceSetIndex();
+            ChannelWebAPIUtils::run(deviceIndex);
+        }
+    }
+}
+
+// Stop all devices in the workspace
+void MainWindow::stopAllDevices(const Workspace *workspace) const
+{
+    int workspaceIndex = workspace->getIndex();
+    for (auto deviceUI : m_deviceUIs)
+    {
+        if (deviceUI->m_deviceAPI->getWorkspaceIndex() == workspaceIndex)
+        {
+            int deviceIndex = deviceUI->m_deviceAPI->getDeviceSetIndex();
+            ChannelWebAPIUtils::stop(deviceIndex);
+        }
+    }
+}
+
+void MainWindow::deviceStateChanged(DeviceAPI *deviceAPI)
+{
+    emit m_mainCore->deviceStateChanged(deviceAPI->getDeviceSetIndex(), deviceAPI);
+}
+
+void MainWindow::openFeaturePresetsDialog(QPoint p, Workspace *workspace)
+{
+    FeaturePresetsDialog dialog;
+    dialog.setFeatureUISet(m_featureUIs[0]);
+    dialog.setPresets(m_mainCore->m_settings.getFeatureSetPresets());
+    dialog.setPluginAPI(m_pluginManager->getPluginAPI());
+    dialog.setWebAPIAdapter(m_apiAdapter);
+    dialog.setCurrentWorkspace(workspace);
+    dialog.setWorkspaces(&m_workspaces);
+    dialog.populateTree();
+    dialog.move(p);
+    new DialogPositioner(&dialog, true);
+    dialog.exec();
+
+    if (dialog.wasPresetLoaded())
+    {
+        for (int i = 0; i < m_featureUIs[0]->getNumberOfFeatures(); i++)
+        {
+            FeatureGUI *gui = m_featureUIs[0]->getFeatureGuiAt(i);
+            QObject::connect(
+                gui,
+                &FeatureGUI::moveToWorkspace,
+                this,
+                [this, gui](int wsIndexDest){ this->featureMove(gui, wsIndexDest); }
+            );
+        }
+    }
+}
+
+void MainWindow::openDeviceSetPresetsDialog(QPoint p, const DeviceGUI *deviceGUI)
+{
+    Workspace *workspace = m_workspaces[deviceGUI->getWorkspaceIndex()];
+    DeviceUISet *deviceUISet = m_deviceUIs[deviceGUI->getIndex()];
+
+    DeviceSetPresetsDialog dialog;
+    dialog.setDeviceUISet(deviceUISet);
+    dialog.setPresets(m_mainCore->m_settings.getPresets());
+    dialog.setPluginAPI(m_pluginManager->getPluginAPI());
+    dialog.setCurrentWorkspace(workspace);
+    dialog.setWorkspaces(&m_workspaces);
+    dialog.populateTree((int) deviceGUI->getDeviceType());
+    dialog.move(p);
+    new DialogPositioner(&dialog, true);
+    dialog.exec();
+}
+
+void MainWindow::deleteFeature(int featureSetIndex, int featureIndex)
+{
+    if ((featureSetIndex >= 0) && (featureSetIndex < (int) m_featureUIs.size()))
+    {
+        FeatureUISet *featureUISet = m_featureUIs[featureSetIndex];
+        featureUISet->deleteFeature(featureIndex);
+    }
+}
+
+// Look for and load a preset named Defaults/Default for the given plugin id
+void MainWindow::loadDefaultPreset(const QString& pluginId, SerializableInterface *serializableInterface)
+{
+    const QList<PluginPreset*>* presets = m_mainCore->m_settings.getPluginPresets();
+
+    for (const auto preset : *presets)
+    {
+        if (preset->getGroup() == "Defaults"
+            && preset->getDescription() == "Default"
+            && preset->getPluginIdURI() == pluginId)
+        {
+            qDebug() << "MainWindow::loadDefaultPreset: Loading " << preset->getGroup() << preset->getDescription() << "for" << pluginId;
+            serializableInterface->deserialize(preset->getConfig());
         }
     }
 }
 
 void MainWindow::on_action_About_triggered()
 {
-	AboutDialog dlg(m_apiHost, m_apiPort, m_settings, this);
+	AboutDialog dlg(m_apiHost.isEmpty() ? "0.0.0.0" : m_apiHost, m_apiPort, m_mainCore->m_settings, this);
 	dlg.exec();
-}
-
-void MainWindow::on_action_addSourceDevice_triggered()
-{
-    addSourceDevice(-1); // create with file source device by default
-}
-
-void MainWindow::on_action_addSinkDevice_triggered()
-{
-    addSinkDevice();
-}
-
-void MainWindow::on_action_removeLastDevice_triggered()
-{
-    if (m_deviceUIs.size() > 1)
-    {
-        removeLastDevice();
-    }
-}
-
-void MainWindow::on_action_Exit_triggered()
-{
-    savePresetSettings(m_settings.getWorkingPreset(), 0);
-    m_settings.save();
-
-    while (m_deviceUIs.size() > 0)
-    {
-        removeLastDevice();
-    }
-}
-
-void MainWindow::tabInputViewIndexChanged()
-{
-    int inputViewIndex = ui->tabInputsView->currentIndex();
-
-    if ((inputViewIndex >= 0) && (m_masterTabIndex >= 0) && (inputViewIndex != m_masterTabIndex))
-    {
-        DeviceUISet *deviceUI = m_deviceUIs[inputViewIndex];
-        DeviceUISet *lastdeviceUI = m_deviceUIs[m_masterTabIndex];
-        lastdeviceUI->m_mainWindowState = saveState();
-        restoreState(deviceUI->m_mainWindowState);
-        m_masterTabIndex = inputViewIndex;
-    }
-
-    ui->tabSpectra->setCurrentIndex(inputViewIndex);
-    ui->tabChannels->setCurrentIndex(inputViewIndex);
-    ui->tabInputsSelect->setCurrentIndex(inputViewIndex);
-    ui->tabSpectraGUI->setCurrentIndex(inputViewIndex);
 }
 
 void MainWindow::updateStatus()
 {
-    m_dateTimeWidget->setText(QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss t"));
-}
-
-void MainWindow::setLoggingOptions()
-{
-    m_logger->setConsoleMinMessageLevel(m_settings.getConsoleMinLogLevel());
-
-    if (m_settings.getUseLogFile())
-    {
-        qtwebapp::FileLoggerSettings fileLoggerSettings; // default values
-
-        if (m_logger->hasFileLogger()) {
-            fileLoggerSettings = m_logger->getFileLoggerSettings(); // values from file logger if it exists
-        }
-
-        fileLoggerSettings.fileName = m_settings.getLogFileName(); // put new values
-        m_logger->createOrSetFileLogger(fileLoggerSettings, 2000); // create file logger if it does not exist and apply settings in any case
-    }
-
-    if (m_logger->hasFileLogger()) {
-        m_logger->setFileMinMessageLevel(m_settings.getFileMinLogLevel());
-    }
-
-    m_logger->setUseFileLogger(m_settings.getUseLogFile());
-
-    if (m_settings.getUseLogFile())
-    {
-#if QT_VERSION >= 0x050400
-        QString appInfoStr(tr("%1 %2 Qt %3 %4b %5 %6 DSP Rx:%7b Tx:%8b PID %9")
-                .arg(qApp->applicationName())
-                .arg(qApp->applicationVersion())
-                .arg(QT_VERSION_STR)
-                .arg(QT_POINTER_SIZE*8)
-                .arg(QSysInfo::currentCpuArchitecture())
-                .arg(QSysInfo::prettyProductName())
-                .arg(SDR_RX_SAMP_SZ)
-                .arg(SDR_TX_SAMP_SZ)
-                .arg(qApp->applicationPid()));
-#else
-        QString appInfoStr(tr("%1 %2 Qt %3 %4b DSP Rx:%5b Tx:%6b PID %7")
-                .arg(qApp->applicationName())
-                .arg(qApp->applicationVersion())
-                .arg(QT_VERSION_STR)
-                .arg(QT_POINTER_SIZE*8)
-                .arg(SDR_RX_SAMP_SZ)
-                .arg(SDR_TX_SAMP_SZ)
-                .arg(qApp->applicationPid()));
- #endif
-        m_logger->logToFile(QtInfoMsg, appInfoStr);
+    if (m_dateTimeWidget) {
+        m_dateTimeWidget->setText(QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss t"));
     }
 }
 
-void MainWindow::commandKeyPressed(Qt::Key key, Qt::KeyboardModifiers keyModifiers, bool release)
+void MainWindow::commandKeyPressed(Qt::Key key, Qt::KeyboardModifiers keyModifiers, bool release) const
 {
-    //qDebug("MainWindow::commandKeyPressed: key: %x mod: %x %s", (int) key, (int) keyModifiers, release ? "release" : "press");
-    int currentDeviceSetIndex = ui->tabInputsSelect->currentIndex();
+    qDebug("MainWindow::commandKeyPressed: key: %x mod: %x %s", (int) key, (int) keyModifiers, release ? "release" : "press");
+    int currentDeviceSetIndex = 0;
 
-    for (int i = 0; i < m_settings.getCommandCount(); ++i)
+    for (int i = 0; i < m_mainCore->m_settings.getCommandCount(); ++i)
     {
-        const Command* command = m_settings.getCommand(i);
+        const Command* command = m_mainCore->m_settings.getCommand(i);
 
         if (command->getAssociateKey()
                 && (command->getRelease() == release)
                 && (command->getKey() == key)
                 && (command->getKeyModifiers() == keyModifiers))
         {
-            Command* command_mod = const_cast<Command*>(command);
+            auto* command_mod = const_cast<Command*>(command);
             command_mod->run(m_apiServer->getHost(), m_apiServer->getPort(), currentDeviceSetIndex);
         }
     }
+}
+
+void MainWindow::keyPressEvent(QKeyEvent* event)
+{
+#ifdef ANDROID
+    if (event->key() == Qt::Key_Back)
+    {
+        // On Android, we don't want to exit when back key is pressed, just run in the background
+        Android::moveTaskToBack();
+    }
+    else
+#endif
+    {
+        QMainWindow::keyPressEvent(event);
+    }
+}
+
+void MainWindow::orientationChanged(Qt::ScreenOrientation orientation)
+{
+#ifdef ANDROID
+    // Adjust workspace tab position, to leave max space for MDI windows
+    if ((orientation == Qt::LandscapeOrientation) || (orientation == Qt::InvertedLandscapeOrientation)) {
+        setTabPosition(Qt::LeftDockWidgetArea, QTabWidget::West);
+    } else {
+        setTabPosition(Qt::LeftDockWidgetArea, QTabWidget::South);
+    }
+#else
+    (void) orientation;
+#endif
 }

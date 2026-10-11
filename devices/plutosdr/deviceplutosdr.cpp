@@ -1,5 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2017 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2017, 2019 Edouard Griffiths, F4EXB <f4exb06@gmail.com>    //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -30,6 +32,8 @@ const uint32_t DevicePlutoSDR::bbLPRxLowLimitFreq  =   200000U; // 200 kHz
 const uint32_t DevicePlutoSDR::bbLPRxHighLimitFreq = 14000000U; // 14 MHz
 const uint32_t DevicePlutoSDR::bbLPTxLowLimitFreq  =   625000U; // 625 kHz
 const uint32_t DevicePlutoSDR::bbLPTxHighLimitFreq = 16000000U; // 16 MHz
+const int32_t DevicePlutoSDR::rxMinGain = 0;                    //  0 dB
+const int32_t DevicePlutoSDR::rxMaxGain = 77;                   // 77 dB
 
 const float DevicePlutoSDR::firBWLowLimitFactor  = 0.05f;
 const float DevicePlutoSDR::firBWHighLimitFactor = 0.9f;

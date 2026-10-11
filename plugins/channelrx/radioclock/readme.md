@@ -1,0 +1,143 @@
+<h1>Radio Clock Plugin</h1>
+
+<h2>Introduction</h2>
+
+This plugin can be used to receive the time and date as broadcast on Low Frequency (LF) by various transmitters that are tied to atomic clocks:
+
+* [MSF](https://en.wikipedia.org/wiki/Time_from_NPL_(MSF)) - UK - 60kHz
+* [DCF77](https://en.wikipedia.org/wiki/DCF77) - Germany - 77.5kHz
+* [TDF](https://en.wikipedia.org/wiki/TDF_time_signal) - France - 162kHz
+* [WWVB](https://en.wikipedia.org/wiki/WWVB) - USA - 60kHz
+* [JJY](https://en.wikipedia.org/wiki/JJY) - Japan - 40kHz
+* [RBU](https://en.wikipedia.org/wiki/RBU) - Russia - 66.666kHz
+* [PCSK-225](https://e-czas.gum.gov.pl/e-czas-radio/) - Poland - 225kHz
+
+If you'd like other transmitters to be supported, please upload a .sdriq file to SDRangel's [github issue tracker](https://github.com/f4exb/sdrangel/issues).
+
+Typically, it will take two minutes before the time is able to be displayed (up to one minute to find the minute marker, then another minute to receive the timecode).
+
+Although the atomic clocks used to transmit the timecode are extremely accurate, propagation, SDR data transfer and demodulation delays limit accuracy of the displayed time to around 1 second.
+
+<h2>Interface</h2>
+
+The top and bottom bars of the channel window are described [here](../../../sdrgui/channel/readme.md)
+
+![Radio clock plugin GUI](../../../doc/img/RadioClock_plugin.png)
+
+<h3>1: Channel frequency entry mode</h3>
+
+Select from one of the following modes to determine how the channel center frequency is calculated:
+
+* Δf - Specify an offset in Hz from device center frequency.
+* f - Specific a frequency in Hz.
+
+<h3>2: Channel Frequency</h3>
+
+Specifies channel center frequency according to frequency entry mode (1):
+
+* Δf - Offset in Hz from device center frequency.
+* f - Absolute frequency in Hz.
+
+<h3>3: Channel power</h3>
+
+Average total power in dB relative to a +/- 1.0 amplitude signal received in the pass band.
+
+<h3>4: Level meter in dB</h3>
+
+  - top bar (green): average value
+  - bottom bar (blue green): instantaneous peak value
+  - tip vertical bar (bright green): peak hold value
+
+<h3>5: BW - RF Bandwidth</h3>
+
+This specifies the bandwidth of a LPF that is applied to the input signal to limit the RF bandwidth.
+
+* For MSF, DCF77, TDF, WWBV and JJY, this can be 50Hz.
+* For RBU, this should be 1000Hz.
+* For PCSK-225 this should be 500Hz.
+
+<h3>6: TH - Threshold</h3>
+
+* For MSF, DCF77, WWVB, JJY and RBU, specifies the threshold in dB below the average carrier power level. 
+* For RBU this is used to detect the 5ms carrier interruptions that provide symbol timing. 
+* PCSK-225 uses a fixed deep-fade gate 20dB below the average carrier level, so this setting does not affect it.
+
+<h3>7: Modulation</h3>
+
+Specifies the modulation and timecode encoding used:
+
+* MSF - OOK (On-off keying)
+* DCF77 - OOK (On-off keying)
+* TDF - PM (Phase modulation)
+* WWVB - OOK (On-off keying)
+* JJY - OOK (On-off keying)
+* RBU - PM (Phase modulation with 100Hz and 312.5Hz subcarriers)
+* PCSK-225 - NRZ phase modulation at 50 bit/s
+
+<h3>8: Display Time Zone</h3>
+
+Specifies the time zone used to display the received time. This can be:
+
+* Broadcast - the time is displayed as broadcast (which is typically the time zone of the country the signal is broadcast from, adjusted for summer time. WWVB broadcasts UTC).
+* Local - the time is converted to the local time (as determined by your operating system's time zone).
+* UTC - the time is converted to Coordinated Universal Time.
+
+<h3>9: Date</h3>
+
+Displays the decoded date.
+
+<h3>10: Time</h3>
+
+Displays the decoded time, adjusted for the time zone set by (8).
+
+<h3>11: Status</h3>
+
+Displays the demodulator status. This can be:
+
+* Looking for minute marker - Indicated at startup or after signal lost, while looking for the minute marker.
+* Got minute marker - Indicated after finding the minute marker and waiting for the first timecode to be received.
+* OK - Indicates timecodes are being received.
+* Parity error - Indicates a parity error in received timecode.
+
+The date and time fields are only valid when the status indicates OK.
+
+If while in the OK state several second markers are not detected, the status will return to Looking for minute marker.
+
+<h3>12: Daylight Savings</h3>
+
+Displays the daylight savings state:
+
+* In effect
+* Not in effect
+* Starting
+* Ending
+
+For MSF, DCF77 and TDF, starting/ending is indicated one hour before the change. 
+For WWVB it is set for the whole day. 
+Japan does not use daylight savings. 
+RBU broadcasts the offset between Moscow time and UTC rather than a daylight-savings flag, so this field is blank for RBU. 
+PCSK-225 broadcasts the UTC offset and an advance time-zone-change flag, which are used to derive this field.
+
+<h3>Waveforms</h3>
+
+The scope shows how various variables within the demodulator vary with time. These can be used to help debug operation of the demodulator.
+
+The signals available include:
+
+- IQ - IQ data at channel sample rate (1kHz).
+- MagSq - Magnitude squared (power) of received signal after being filtered with a moving average filter.
+- TH - Current threshold, which is moving average of MagSq - TH setting.
+- FM - Output of the phase/frequency demodulator for TDF, RBU and PCSK-225.
+- Data - Demodulated data. For MSF/DCF77, this data=MagSq>TH.
+- Samp - Indicates when data is sampled (either for the second marker or for a timecode data bit).
+- GotMM - Indicates whether the minute marker has been received. Cleared when synchronization to second marker is lost.
+- GotM - Indicates when a marker is detected. For WWVB only.
+
+For RBU, Data is the decoded 100ms symbol (100Hz is 0 and 312.5Hz is 1), Samp pulses when a symbol decision is made, and GotMM indicates that the five-symbol minute marker has been received.
+
+For PCSK-225, Data is the decoded 50 bit/s phase symbol, Samp pulses at the bit decision point, and GotMM indicates that a valid Reed-Solomon and CRC-protected time message has been received. The transport is organized as a repeating one-minute frame of twenty three-second slots; the displayed time runs locally between valid messages.
+
+As an example of how this can be used, we can plot the MagSq as X and the calculated TH as Y, which can help to set the value of the
+TH setting to an appropriate level.
+
+![Radio clock plugin GUI](../../../doc/img/RadioClock_waveforms.png)

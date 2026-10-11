@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2015 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2018-2019 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -30,8 +30,13 @@ SoapySDROutputThread::SoapySDROutputThread(SoapySDR::Device* dev, unsigned int n
     m_dev(dev),
     m_sampleRate(0),
     m_nbChannels(nbTxChannels),
-    m_interpolatorType(InterpolatorFloat)
+    m_interpolatorType(InterpolatorFloat),
+    m_packets(0),
+    m_underflows(0),
+    m_errors(0),
+    m_consecutiveErrors(0)
 {
+    setObjectName("SoapySDROutput");
     qDebug("SoapySDROutputThread::SoapySDROutputThread");
     m_channels = new Channel[nbTxChannels];
 }
@@ -52,6 +57,12 @@ void SoapySDROutputThread::startWork()
     if (m_running) {
         return;
     }
+
+    // Reset diagnostic counters for new session
+    m_packets = 0;
+    m_underflows = 0;
+    m_errors = 0;
+    m_consecutiveErrors = 0;
 
     m_startWaitMutex.lock();
     start();
@@ -91,23 +102,33 @@ void SoapySDROutputThread::run()
         for (const auto &it : channels) {
             m_dev->setSampleRate(SOAPY_SDR_TX, it, m_sampleRate);
         }
+        if (m_nbChannels > 1) {
+            // Do NOT set ch1 gain — B210's global TX gain is shared between channels.
+            // Setting ch1 gain overrides ch0's configured gain from REST API.
+            double txFreq = m_dev->getFrequency(SOAPY_SDR_TX, 0);
+            m_dev->setFrequency(SOAPY_SDR_TX, 1, txFreq);
+        }
 
         // Determine sample format to be used
         double fullScale(0.0);
         std::string format = m_dev->getNativeStreamFormat(SOAPY_SDR_TX, channels.front(), fullScale);
 
         qDebug("SoapySDROutputThread::run: format: %s fullScale: %f", format.c_str(), fullScale);
+        qCritical("SoapySDROutput: fmt=[%s] len=%zu fs=%.15f cb=%d ch=%zu",
+                  format.c_str(), format.size(), fullScale, m_interpolatorType, channels.size());
 
         if ((format == "CS8") && (fullScale == 128.0)) { // 8 bit signed - native
             m_interpolatorType = Interpolator8;
         } else if ((format == "CS16") && (fullScale == 2048.0)) { // 12 bit signed - native
             m_interpolatorType = Interpolator12;
-        } else if ((format == "CS16") && (fullScale == 32768.0)) { // 16 bit signed - native
+        } else if ((format == "CS16") && (fullScale >= 2049.0)) { // 16 bit signed - native
             m_interpolatorType = Interpolator16;
         } else { // for other types make a conversion to float
             m_interpolatorType = InterpolatorFloat;
             format = "CF32";
         }
+
+        qCritical("SoapySDROutput: final fmt=[%s] cb=%d", format.c_str(), m_interpolatorType);
 
         unsigned int elemSize = SoapySDR::formatToSize(format); // sample (I+Q) size in bytes
         SoapySDR::Stream *stream = m_dev->setupStream(SOAPY_SDR_TX, format, channels);
@@ -121,43 +142,49 @@ void SoapySDROutputThread::run()
             buffs[i] = buffMem[i].data();
         }
 
+        // Activate stream at thread start (untimed).  USRPOutputThread
+        // never uses has_time_spec — match that behavior.  HAS_TIME on
+        // first write stalls UHD waiting for the future timestamp which
+        // fills the TX ring buffer → writeStream timeouts → USB transport
+        // corruption → LIBUSB_ERROR_NOT_FOUND.
         m_dev->activateStream(stream);
-        int flags(0);
+        // Gain applied by SoapySDROutput::start() after thread is active.
+        // Do NOT set gain here — setGain before stream activation is a
+        // no-op on SoapyUHD/B210, and reading back returns 0.
+        int writeFlags(0);
         long long timeNs(0);
-        float blockTime = ((float) numElems) / (m_sampleRate <= 0 ? 1024000 : m_sampleRate);
-        long initialTtimeoutUs = 10000000 * blockTime; // 10 times the block time
-        long timeoutUs = initialTtimeoutUs < 250000 ? 250000 : initialTtimeoutUs; // 250ms minimum
+        long timeoutUs = 10000; // 10ms max block per writeStream
 
-        qDebug("SoapySDROutputThread::run: numElems: %u elemSize: %u initialTtimeoutUs: %ld  timeoutUs: %ld",
-                numElems, elemSize, initialTtimeoutUs, timeoutUs);
+        {
+            double actFreq = m_dev->getFrequency(SOAPY_SDR_TX, channels[0]);
+            double actGain = m_dev->getGain(SOAPY_SDR_TX, channels[0]);
+            double actSR = m_dev->getSampleRate(SOAPY_SDR_TX, channels[0]);
+            qCritical("SoapySDROutputThread::run: ch0 freq=%.0f gain=%.1f SR=%.0f",
+                      actFreq, actGain, actSR);
+            if (channels.size() > 1) {
+                double actFreq1 = m_dev->getFrequency(SOAPY_SDR_TX, channels[1]);
+                double actGain1 = m_dev->getGain(SOAPY_SDR_TX, channels[1]);
+                qCritical("SoapySDROutputThread::run: ch1 freq=%.0f gain=%.1f",
+                          actFreq1, actGain1);
+            }
+        }
+
+        qDebug("SoapySDROutputThread::run: numElems: %u elemSize: %u timeoutUs: %ld",
+                numElems, elemSize, timeoutUs);
         qDebug("SoapySDROutputThread::run: start running loop");
 
         while (m_running)
         {
-            int ret = m_dev->writeStream(stream, buffs.data(), numElems, flags, timeNs, timeoutUs);
-
-            if (ret == SOAPY_SDR_TIMEOUT)
-            {
-                qWarning("SoapySDROutputThread::run: timeout: flags: %d timeNs: %lld timeoutUs: %ld", flags, timeNs, timeoutUs);
-            }
-            else if (ret == SOAPY_SDR_OVERFLOW)
-            {
-                qWarning("SoapySDROutputThread::run: overflow: flags: %d timeNs: %lld timeoutUs: %ld", flags, timeNs, timeoutUs);
-            }
-            else if (ret < 0)
-            {
-                qCritical("SoapySDROutputThread::run: Unexpected write stream error: %s", SoapySDR::errToStr(ret));
-                break;
+            // Zero buffers before fill — prevents stale data
+            for (auto& buf : buffMem) {
+                std::fill(buf.begin(), buf.end(), 0);
             }
 
-            if (m_nbChannels > 1)
-            {
-                callbackMO(buffs, numElems); // size given in number of samples (1 item per sample)
-            }
-            else
-            {
-                switch (m_interpolatorType)
-                {
+            // Fill buffers from FIFO
+            if (m_nbChannels > 1) {
+                callbackMO(buffs, numElems);
+            } else {
+                switch (m_interpolatorType) {
                 case Interpolator8:
                     callbackSO8((qint8*) buffs[0], numElems);
                     break;
@@ -169,10 +196,49 @@ void SoapySDROutputThread::run()
                     break;
                 case InterpolatorFloat:
                 default:
-                    // TODO
+                    callbackSOIF((float*) buffs[0], numElems);
                     break;
                 }
             }
+
+            // Idle-skip: when FIFO is empty, sleep and retry.
+            // Matches USRPOutputThread behavior.
+            bool hasNonZero = false;
+            for (unsigned int i = 0; i < m_nbChannels && !hasNonZero; i++) {
+                const char* p = buffMem[i].data();
+                const char* end = p + std::min<size_t>(16, buffMem[i].size());
+                while (p < end) {
+                    if (*p++ != 0) { hasNonZero = true; break; }
+                }
+            }
+
+            if (!hasNonZero) {
+                QThread::usleep(100);
+                continue;
+            }
+            int ret = m_dev->writeStream(stream, buffs.data(), numElems, writeFlags, timeNs, timeoutUs);
+
+            if (ret == SOAPY_SDR_TIMEOUT)
+            {
+                m_underflows++;
+                qWarning("SoapySDROutputThread::run: timeout: flags: %d timeNs: %lld timeoutUs: %ld", writeFlags, timeNs, timeoutUs);
+            }
+            else if (ret == SOAPY_SDR_OVERFLOW)
+            {
+                m_underflows++;
+                qWarning("SoapySDROutputThread::run: overflow: flags: %d timeNs: %lld timeoutUs: %ld", writeFlags, timeNs, timeoutUs);
+            }
+            else if (ret < 0)
+            {
+                m_errors++;
+                qCritical("SoapySDROutputThread::run: Unexpected write stream error: %s", SoapySDR::errToStr(ret));
+                break;
+            }
+            else if (ret > 0)
+            {
+                m_packets++;
+            }
+
         }
 
         qDebug("SoapySDROutputThread::run: stop running loop");
@@ -253,7 +319,7 @@ void SoapySDROutputThread::callbackMO(std::vector<void *>& buffs, qint32 samples
                 break;
             case InterpolatorFloat:
             default:
-                // TODO
+                callbackSOIF((float*) buffs[ichan], samplesPerChannel, ichan);
                 break;
             }
         }
@@ -270,7 +336,7 @@ void SoapySDROutputThread::callbackMO(std::vector<void *>& buffs, qint32 samples
                 break;
             case InterpolatorFloat:
             default:
-                // TODO
+                std::fill((float*) buffs[ichan], (float*) buffs[ichan] + 2*samplesPerChannel, 0.0f);
                 break;
             }
         }
@@ -283,52 +349,60 @@ void SoapySDROutputThread::callbackSO8(qint8* buf, qint32 len, unsigned int chan
 {
     if (m_channels[channel].m_sampleFifo)
     {
-        float bal = m_channels[channel].m_sampleFifo->getRWBalance();
+        SampleVector& data = m_channels[channel].m_sampleFifo->getData();
+        unsigned int iPart1Begin, iPart1End, iPart2Begin, iPart2End;
+        m_channels[channel].m_sampleFifo->read(len/(1<<m_channels[channel].m_log2Interp), iPart1Begin, iPart1End, iPart2Begin, iPart2End);
 
-        if (bal < -0.25) {
-            qDebug("SoapySDROutputThread::callbackSO8: read lags: %f", bal);
-        } else if (bal > 0.25) {
-            qDebug("SoapySDROutputThread::callbackSO8: read leads: %f", bal);
+        if (iPart1Begin != iPart1End) {
+            callbackPart8(buf, data, iPart1Begin, iPart1End, channel);
         }
 
-        SampleVector::iterator beginRead;
-        m_channels[channel].m_sampleFifo->readAdvance(beginRead, len/(1<<m_channels[channel].m_log2Interp));
-        beginRead -= len;
+        unsigned int shift = (iPart1End - iPart1Begin)*(1<<m_channels[channel].m_log2Interp);
 
-        if (m_channels[channel].m_log2Interp == 0)
-        {
-            m_channels[channel].m_interpolators8.interpolate1(&beginRead, buf, len*2);
-        }
-        else
-        {
-            switch (m_channels[channel].m_log2Interp)
-            {
-            case 1:
-                m_channels[channel].m_interpolators8.interpolate2_cen(&beginRead, buf, len*2);
-                break;
-            case 2:
-                m_channels[channel].m_interpolators8.interpolate4_cen(&beginRead, buf, len*2);
-                break;
-            case 3:
-                m_channels[channel].m_interpolators8.interpolate8_cen(&beginRead, buf, len*2);
-                break;
-            case 4:
-                m_channels[channel].m_interpolators8.interpolate16_cen(&beginRead, buf, len*2);
-                break;
-            case 5:
-                m_channels[channel].m_interpolators8.interpolate32_cen(&beginRead, buf, len*2);
-                break;
-            case 6:
-                m_channels[channel].m_interpolators8.interpolate64_cen(&beginRead, buf, len*2);
-                break;
-            default:
-                break;
-            }
+        if (iPart2Begin != iPart2End) {
+            callbackPart8(buf + 2*shift, data, iPart2Begin, iPart2End, channel);
         }
     }
     else
     {
         std::fill(buf, buf+2*len, 0);
+    }
+}
+
+void SoapySDROutputThread::callbackPart8(qint8* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd, unsigned int channel)
+{
+    SampleVector::iterator beginRead = data.begin() + iBegin;
+    int len = 2*(iEnd - iBegin)*(1<<m_channels[channel].m_log2Interp);
+
+    if (m_channels[channel].m_log2Interp == 0)
+    {
+        m_channels[channel].m_interpolators8.interpolate1(&beginRead, buf, len);
+    }
+    else
+    {
+        switch (m_channels[channel].m_log2Interp)
+        {
+        case 1:
+            m_channels[channel].m_interpolators8.interpolate2_cen(&beginRead, buf, len);
+            break;
+        case 2:
+            m_channels[channel].m_interpolators8.interpolate4_cen(&beginRead, buf, len);
+            break;
+        case 3:
+            m_channels[channel].m_interpolators8.interpolate8_cen(&beginRead, buf, len);
+            break;
+        case 4:
+            m_channels[channel].m_interpolators8.interpolate16_cen(&beginRead, buf, len);
+            break;
+        case 5:
+            m_channels[channel].m_interpolators8.interpolate32_cen(&beginRead, buf, len);
+            break;
+        case 6:
+            m_channels[channel].m_interpolators8.interpolate64_cen(&beginRead, buf, len);
+            break;
+        default:
+            break;
+        }
     }
 }
 
@@ -336,47 +410,18 @@ void SoapySDROutputThread::callbackSO12(qint16* buf, qint32 len, unsigned int ch
 {
     if (m_channels[channel].m_sampleFifo)
     {
-        float bal = m_channels[channel].m_sampleFifo->getRWBalance();
+        SampleVector& data = m_channels[channel].m_sampleFifo->getData();
+        unsigned int iPart1Begin, iPart1End, iPart2Begin, iPart2End;
+        m_channels[channel].m_sampleFifo->read(len/(1<<m_channels[channel].m_log2Interp), iPart1Begin, iPart1End, iPart2Begin, iPart2End);
 
-        if (bal < -0.25) {
-            qDebug("SoapySDROutputThread::callbackSO12: read lags: %f", bal);
-        } else if (bal > 0.25) {
-            qDebug("SoapySDROutputThread::callbackSO12: read leads: %f", bal);
+        if (iPart1Begin != iPart1End) {
+            callbackPart12(buf, data, iPart1Begin, iPart1End, channel);
         }
 
-        SampleVector::iterator beginRead;
-        m_channels[channel].m_sampleFifo->readAdvance(beginRead, len/(1<<m_channels[channel].m_log2Interp));
-        beginRead -= len;
+        unsigned int shift = (iPart1End - iPart1Begin)*(1<<m_channels[channel].m_log2Interp);
 
-        if (m_channels[channel].m_log2Interp == 0)
-        {
-            m_channels[channel].m_interpolators12.interpolate1(&beginRead, buf, len*2);
-        }
-        else
-        {
-            switch (m_channels[channel].m_log2Interp)
-            {
-            case 1:
-                m_channels[channel].m_interpolators12.interpolate2_cen(&beginRead, buf, len*2);
-                break;
-            case 2:
-                m_channels[channel].m_interpolators12.interpolate4_cen(&beginRead, buf, len*2);
-                break;
-            case 3:
-                m_channels[channel].m_interpolators12.interpolate8_cen(&beginRead, buf, len*2);
-                break;
-            case 4:
-                m_channels[channel].m_interpolators12.interpolate16_cen(&beginRead, buf, len*2);
-                break;
-            case 5:
-                m_channels[channel].m_interpolators12.interpolate32_cen(&beginRead, buf, len*2);
-                break;
-            case 6:
-                m_channels[channel].m_interpolators12.interpolate64_cen(&beginRead, buf, len*2);
-                break;
-            default:
-                break;
-            }
+        if (iPart2Begin != iPart2End) {
+            callbackPart12(buf + 2*shift, data, iPart2Begin, iPart2End, channel);
         }
     }
     else
@@ -385,55 +430,169 @@ void SoapySDROutputThread::callbackSO12(qint16* buf, qint32 len, unsigned int ch
     }
 }
 
+void SoapySDROutputThread::callbackPart12(qint16* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd, unsigned int channel)
+{
+    SampleVector::iterator beginRead = data.begin() + iBegin;
+    int len = 2*(iEnd - iBegin)*(1<<m_channels[channel].m_log2Interp);
+
+    if (m_channels[channel].m_log2Interp == 0)
+    {
+        m_channels[channel].m_interpolators12.interpolate1(&beginRead, buf, len);
+    }
+    else
+    {
+        switch (m_channels[channel].m_log2Interp)
+        {
+        case 1:
+            m_channels[channel].m_interpolators12.interpolate2_cen(&beginRead, buf, len);
+            break;
+        case 2:
+            m_channels[channel].m_interpolators12.interpolate4_cen(&beginRead, buf, len);
+            break;
+        case 3:
+            m_channels[channel].m_interpolators12.interpolate8_cen(&beginRead, buf, len);
+            break;
+        case 4:
+            m_channels[channel].m_interpolators12.interpolate16_cen(&beginRead, buf, len);
+            break;
+        case 5:
+            m_channels[channel].m_interpolators12.interpolate32_cen(&beginRead, buf, len);
+            break;
+        case 6:
+            m_channels[channel].m_interpolators12.interpolate64_cen(&beginRead, buf, len);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
 void SoapySDROutputThread::callbackSO16(qint16* buf, qint32 len, unsigned int channel)
 {
     if (m_channels[channel].m_sampleFifo)
     {
-        float bal = m_channels[channel].m_sampleFifo->getRWBalance();
+        SampleVector& data = m_channels[channel].m_sampleFifo->getData();
+        unsigned int iPart1Begin, iPart1End, iPart2Begin, iPart2End;
+        m_channels[channel].m_sampleFifo->read(len/(1<<m_channels[channel].m_log2Interp), iPart1Begin, iPart1End, iPart2Begin, iPart2End);
 
-        if (bal < -0.25) {
-            qDebug("SoapySDROutputThread::callbackSO16: read lags: %f", bal);
-        } else if (bal > 0.25) {
-            qDebug("SoapySDROutputThread::callbackSO16: read leads: %f", bal);
+        if (iPart1Begin != iPart1End) {
+            callbackPart16(buf, data, iPart1Begin, iPart1End, channel);
         }
 
-        SampleVector::iterator beginRead;
-        m_channels[channel].m_sampleFifo->readAdvance(beginRead, len/(1<<m_channels[channel].m_log2Interp));
-        beginRead -= len;
+        unsigned int shift = (iPart1End - iPart1Begin)*(1<<m_channels[channel].m_log2Interp);
 
-        if (m_channels[channel].m_log2Interp == 0)
-        {
-            m_channels[channel].m_interpolators16.interpolate1(&beginRead, buf, len*2);
-        }
-        else
-        {
-            switch (m_channels[channel].m_log2Interp)
-            {
-            case 1:
-                m_channels[channel].m_interpolators16.interpolate2_cen(&beginRead, buf, len*2);
-                break;
-            case 2:
-                m_channels[channel].m_interpolators16.interpolate4_cen(&beginRead, buf, len*2);
-                break;
-            case 3:
-                m_channels[channel].m_interpolators16.interpolate8_cen(&beginRead, buf, len*2);
-                break;
-            case 4:
-                m_channels[channel].m_interpolators16.interpolate16_cen(&beginRead, buf, len*2);
-                break;
-            case 5:
-                m_channels[channel].m_interpolators16.interpolate32_cen(&beginRead, buf, len*2);
-                break;
-            case 6:
-                m_channels[channel].m_interpolators16.interpolate64_cen(&beginRead, buf, len*2);
-                break;
-            default:
-                break;
-            }
+        if (iPart2Begin != iPart2End) {
+            callbackPart16(buf + 2*shift, data, iPart2Begin, iPart2End, channel);
         }
     }
     else
     {
         std::fill(buf, buf+2*len, 0);
     }
+}
+
+void SoapySDROutputThread::callbackPart16(qint16* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd, unsigned int channel)
+{
+    SampleVector::iterator beginRead = data.begin() + iBegin;
+    int len = 2*(iEnd - iBegin)*(1<<m_channels[channel].m_log2Interp);
+
+    if (m_channels[channel].m_log2Interp == 0)
+    {
+        m_channels[channel].m_interpolators16.interpolate1(&beginRead, buf, len);
+    }
+    else
+    {
+        switch (m_channels[channel].m_log2Interp)
+        {
+        case 1:
+            m_channels[channel].m_interpolators16.interpolate2_cen(&beginRead, buf, len);
+            break;
+        case 2:
+            m_channels[channel].m_interpolators16.interpolate4_cen(&beginRead, buf, len);
+            break;
+        case 3:
+            m_channels[channel].m_interpolators16.interpolate8_cen(&beginRead, buf, len);
+            break;
+        case 4:
+            m_channels[channel].m_interpolators16.interpolate16_cen(&beginRead, buf, len);
+            break;
+        case 5:
+            m_channels[channel].m_interpolators16.interpolate32_cen(&beginRead, buf, len);
+            break;
+        case 6:
+            m_channels[channel].m_interpolators16.interpolate64_cen(&beginRead, buf, len);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+void SoapySDROutputThread::callbackSOIF(float* buf, qint32 len, unsigned int channel)
+{
+    if (m_channels[channel].m_sampleFifo)
+    {
+        SampleVector& data = m_channels[channel].m_sampleFifo->getData();
+        unsigned int iPart1Begin, iPart1End, iPart2Begin, iPart2End;
+        m_channels[channel].m_sampleFifo->read(len/(1<<m_channels[channel].m_log2Interp), iPart1Begin, iPart1End, iPart2Begin, iPart2End);
+
+        if (iPart1Begin != iPart1End) {
+            callbackPartF(buf, data, iPart1Begin, iPart1End, channel);
+        }
+
+        unsigned int shift = (iPart1End - iPart1Begin)*(1<<m_channels[channel].m_log2Interp);
+
+        if (iPart2Begin != iPart2End) {
+            callbackPartF(buf + 2*shift, data, iPart2Begin, iPart2End, channel);
+        }
+    }
+    else
+    {
+        std::fill(buf, buf+2*len, 0.0f);
+    }
+}
+
+void SoapySDROutputThread::callbackPartF(float* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd, unsigned int channel)
+{
+    SampleVector::iterator beginRead = data.begin() + iBegin;
+    int len = 2*(iEnd - iBegin)*(1<<m_channels[channel].m_log2Interp);
+
+    if (m_channels[channel].m_log2Interp == 0)
+    {
+        m_channels[channel].m_interpolatorsIF.interpolate1(&beginRead, buf, len);
+    }
+    else
+    {
+        switch (m_channels[channel].m_log2Interp)
+        {
+        case 1:
+            m_channels[channel].m_interpolatorsIF.interpolate2_cen(&beginRead, buf, len);
+            break;
+        case 2:
+            m_channels[channel].m_interpolatorsIF.interpolate4_cen(&beginRead, buf, len);
+            break;
+        case 3:
+            m_channels[channel].m_interpolatorsIF.interpolate8_cen(&beginRead, buf, len);
+            break;
+        case 4:
+            m_channels[channel].m_interpolatorsIF.interpolate16_cen(&beginRead, buf, len);
+            break;
+        case 5:
+            m_channels[channel].m_interpolatorsIF.interpolate32_cen(&beginRead, buf, len);
+            break;
+        case 6:
+            m_channels[channel].m_interpolatorsIF.interpolate64_cen(&beginRead, buf, len);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+void SoapySDROutputThread::getStreamStatus(bool& active, quint64& packets, quint32& underflows, quint32& errors)
+{
+    active = m_packets > 0;
+    packets = m_packets;
+    underflows = m_underflows;
+    errors = m_errors;
 }

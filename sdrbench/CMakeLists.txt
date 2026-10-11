@@ -1,10 +1,22 @@
 project (sdrbench)
 
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopt-info-vec-optimized")
+if (FT8_SUPPORT)
+    set(sdrbench_FT8_LIB ft8)
+endif()
 
 set(sdrbench_SOURCES
     mainbench.cpp
     parserbench.cpp
+    test_golay2312.cpp
+    test_ft8.cpp
+    test_ft4.cpp
+    test_callsign.cpp
+    test_ft8protocols.cpp
+    test_fftrrc.cpp
+    test_firrrc.cpp
+    test_meshtastic.cpp
+    test_psk31.cpp
+    ../plugins/channelrx/demodpsk31/psk31demodulator.cpp
 )
 
 set(sdrbench_HEADERS
@@ -12,36 +24,34 @@ set(sdrbench_HEADERS
     parserbench.h
 )
 
-set(sdrbench_SOURCES
-    ${sdrbench_SOURCES}
-    ${sdrbench_HEADERS}
-)
-
-add_definitions(${QT_DEFINITIONS})
-add_definitions(-DQT_SHARED)
-
 add_library(sdrbench SHARED
     ${sdrbench_SOURCES}
-    ${sdrbench_HEADERS_MOC}
 )
 
 include_directories(
-    .
+    ${FFTW3F_INCLUDE_DIRS}
+    ${Boost_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/exports
-    ${CMAKE_SOURCE_DIR}/sdrbase    
+    ${CMAKE_SOURCE_DIR}/sdrbase
     ${CMAKE_SOURCE_DIR}/logging
-    ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_SOURCE_DIR}/modemmeshtastic
+    ${CMAKE_SOURCE_DIR}/plugins/channelrx/demodpsk31
+    ${CMAKE_SOURCE_DIR}
 )
+
+if(DEFINED FFTW3F_DEPENDS)
+    add_dependencies(sdrbench "${FFTW3F_DEPENDS}")
+endif()
 
 target_link_libraries(sdrbench
-    ${QT_LIBRARIES}
+     Boost::disable_autolinking
+    ${FFTW3F_LIBRARIES}
+    Qt::Core
+    Qt::Gui
     sdrbase
     logging
+    modemmeshtastic
+    ${sdrbench_FT8_LIB}
 )
 
-target_compile_features(sdrbench PRIVATE cxx_generalized_initializers) # cmake >= 3.1.0
-
-target_link_libraries(sdrbench Qt5::Core Qt5::Gui)
-
-install(TARGETS sdrbench DESTINATION lib)
-
+install(TARGETS sdrbench DESTINATION ${INSTALL_LIB_DIR})

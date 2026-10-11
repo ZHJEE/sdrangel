@@ -1,48 +1,86 @@
 RemoteOutputSettings:
   description: RemoteOutput
   properties:
-    centerFrequency:
-      type: integer
-      format: uint64
-    sampleRate:
-      type: integer
-    txDelay:
-      description: minimum delay in ms between two consecutive packets sending
-      type: number
-      format: float
+    title:
+      type: string
+      description: "User-visible title."
     nbFECBlocks:
       type: integer
+      description: "Nb fec blocks setting for Remote output."
+    nbTxBytes:
+      type: integer
+      description: >
+        Number of bytes in a transmitted I or Q sample
+          * 1
+          * 2
+          * 4
     apiAddress:
       type: string
+      description: "IPv4 address or host name of the API endpoint."
     apiPort:
       type: integer
+      description: "TCP port of the API endpoint."
+      minimum: 1
+      maximum: 65535
     dataAddress:
       type: string
+      description: "IPv4 address or host name used for data traffic."
     dataPort:
       type: integer
+      description: "Network port used for data traffic."
+      minimum: 1
+      maximum: 65535
     deviceIndex:
-      device: remote SDRangel instance deviceset index
+      description: remote SDRangel instance deviceset index
       type: integer
     channelIndex:
-      device: remote SDRangel instance channel index
+      description: remote SDRangel instance channel index
       type: integer
     useReverseAPI:
       description: Synchronize with reverse API (1 for yes, 0 for no)
       type: integer
+      minimum: 0
+      maximum: 1
     reverseAPIAddress:
       type: string
+      description: "IPv4 address or host name of the reverse API peer."
     reverseAPIPort:
       type: integer
+      description: "TCP port of the reverse API peer."
+      minimum: 1
+      maximum: 65535
     reverseAPIDeviceIndex:
       type: integer
+      description: "Device-set index used by the reverse API peer."
 
 RemoteOutputReport:
   description: RemoteOutput
   properties:
-    bufferRWBalance:
-      description: ratio off the mid buffer (positive read leads)
-      type: number
-      format: float
+    centerFrequency:
+      type: integer
+      format: int64
+      description: "Device center frequency in Hz."
+    sampleRate:
+      type: integer
+      description: "Sample rate in samples per second."
+    queueLength:
+      description: "Data read/write queue length in number of data frames"
+      type: integer
+    queueSize:
+      description: "Data read/write queue size in number of data frames"
+      type: integer
     sampleCount:
       description: count of samples that have been sent
+      type: integer
+    correctableErrorsCount:
+      description: "Absolute number of correctable errors"
+      type: integer
+    uncorrectableErrorsCount:
+      description: "Absolute number of uncorrectable errors"
+      type: integer
+    tvSec:
+      description: "Counts timestamp seconds"
+      type: integer
+    tvUSec:
+      description: "Counts timestamp microseconds"
       type: integer

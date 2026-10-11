@@ -1,5 +1,8 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2019 F4EXB                                                      //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
+// Copyright (C) 2021 Jon Beniston, M7RCE <jon@beniston.com>                     //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -21,8 +24,7 @@
 #include <QByteArray>
 #include <QString>
 #include <stdint.h>
-
-#include "leansdr/dvb.h"
+#include <vector>
 
 class Serializable;
 
@@ -36,15 +38,34 @@ struct DATVDemodSettings
 
     enum DATVModulation
     {
-        BPSK,
+        BPSK,    // not DVB-S2
         QPSK,
         PSK8,
-        APSK16,
-        APSK32,
-        APSK64E,
-        QAM16,
-        QAM64,
-        QAM256
+        APSK16,  // not DVB-S
+        APSK32,  // not DVB-S
+        APSK64E, // not DVB-S
+        QAM16,   // not DVB-S2
+        QAM64,   // not DVB-S2
+        QAM256,  // not DVB-S2
+        MOD_UNSET
+    };
+
+    enum DATVCodeRate
+    {
+        FEC12, // DVB-S
+        FEC23, // DVB-S
+        FEC46,
+        FEC34, // DVB-S
+        FEC56, // DVB-S
+        FEC78, // DVB-S
+        FEC45,
+        FEC89,
+        FEC910,
+        FEC14,
+        FEC13,
+        FEC25,
+        FEC35,
+        RATE_UNSET
     };
 
     enum dvb_sampler
@@ -61,7 +82,10 @@ struct DATVDemodSettings
     int m_centerFrequency;
     dvb_version m_standard;
     DATVModulation m_modulation;
-    leansdr::code_rate m_fec;
+    DATVCodeRate m_fec;
+    bool m_softLDPC;
+    int m_softLDPCMaxTrials;
+    int m_maxBitflips;
     bool m_audioMute;
     QString m_audioDeviceName;
     int m_symbolRate;
@@ -75,14 +99,43 @@ struct DATVDemodSettings
     int m_excursion;
     int m_audioVolume;
     bool m_videoMute;
+    QString m_udpTSAddress;
+    quint32 m_udpTSPort;
+    bool m_udpTS;
+    bool m_playerEnable;
+    int m_streamIndex; //!< MIMO channel. Not relevant when connected to SI (single Rx).
+    bool m_useReverseAPI;
+    QString m_reverseAPIAddress;
+    uint16_t m_reverseAPIPort;
+    uint16_t m_reverseAPIDeviceIndex;
+    uint16_t m_reverseAPIChannelIndex;
+    Serializable *m_rollupState;
+    int m_workspaceIndex;
+    QByteArray m_geometryBytes;
+    bool m_hidden;
+
+    static const int m_softLDPCMaxMaxTrials = 50;
 
     DATVDemodSettings();
     void resetToDefaults();
     void setChannelMarker(Serializable *channelMarker) { m_channelMarker = channelMarker; }
+    void setRollupState(Serializable *rollupState) { m_rollupState = rollupState; }
     QByteArray serialize() const;
     bool deserialize(const QByteArray& data);
     void debug(const QString& msg) const;
-    bool isDifferent(const DATVDemodSettings& other);
+    bool isDifferent(const DATVDemodSettings& other); // true if a change of settings should trigger DVB framework config update
+    void validateSystemConfiguration();
+    void applySettings(const QStringList& settingsKeys, const DATVDemodSettings& settings);
+    QString getDebugString(const QStringList& settingsKeys, bool force=false) const;
+
+    static DATVModulation getModulationFromStr(const QString& str);
+    static DATVCodeRate getCodeRateFromStr(const QString& str);
+    static QString getStrFromModulation(const DATVModulation modulation);
+    static QString getStrFromCodeRate(const DATVCodeRate codeRate);
+    static void getAvailableModulations(dvb_version dvbStandard, std::vector<DATVModulation>& modulations);
+    static void getAvailableCodeRates(dvb_version dvbStandard, DATVModulation modulation, std::vector<DATVCodeRate>& codeRates);
+    static DATVDemodSettings::DATVCodeRate getCodeRateFromLeanDVBCode(int leanDVBCodeRate);
+    static DATVDemodSettings::DATVModulation getModulationFromLeanDVBCode(int leanDVBModulation);
 };
 
 #endif // PLUGINS_CHANNELRX_DEMODATV_DATVDEMODSETTINGS_H_

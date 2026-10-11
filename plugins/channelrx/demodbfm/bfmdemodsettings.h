@@ -1,5 +1,8 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2017 Edouard Griffiths, F4EXB.                                  //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2019, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>    //
+// Copyright (C) 2021 Jon Beniston, M7RCE <jon@beniston.com>                     //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -24,26 +27,39 @@ class Serializable;
 
 struct BFMDemodSettings
 {
+    enum DeEmphasis
+    {
+        DeEmphasis50us,
+        DeEmphasis75us,
+    };
+
     qint64 m_inputFrequencyOffset;
     Real m_rfBandwidth;
     Real m_afBandwidth;
     Real m_volume;
     Real m_squelch;
+    bool m_audioMute;
     bool m_audioStereo;
     bool m_lsbStereo;
     bool m_showPilot;
     bool m_rdsActive;
+    DeEmphasis m_deEmphasis;
     quint32 m_rgbColor;
     QString m_title;
     QString m_audioDeviceName;
+    int m_streamIndex; //!< MIMO channel. Not relevant when connected to SI (single Rx).
     bool m_useReverseAPI;
     QString m_reverseAPIAddress;
     uint16_t m_reverseAPIPort;
     uint16_t m_reverseAPIDeviceIndex;
     uint16_t m_reverseAPIChannelIndex;
+    int m_workspaceIndex;
+    QByteArray m_geometryBytes;
+    bool m_hidden;
 
     Serializable *m_channelMarker;
     Serializable *m_spectrumGUI;
+    Serializable *m_rollupState;
 
     static const int m_nbRFBW;
     static const int m_rfBW[];
@@ -51,12 +67,37 @@ struct BFMDemodSettings
     BFMDemodSettings();
     void resetToDefaults();
     void setChannelMarker(Serializable *channelMarker) { m_channelMarker = channelMarker; }
+    void setRollupState(Serializable *rollupState) { m_rollupState = rollupState; }
     void setSpectrumGUI(Serializable *spectrumGUI) { m_spectrumGUI = spectrumGUI; }
     QByteArray serialize() const;
     bool deserialize(const QByteArray& data);
+    void applySettings(const QStringList& settingsKeys, const BFMDemodSettings& settings);
+    QString getDebugString(const QStringList& settingsKeys, bool force=false) const;
 
     static int getRFBW(int index);
     static int getRFBWIndex(int rfbw);
+
+    static int requiredBW(int rfBW)
+    {
+        if (rfBW <= 48000) {
+            return 48000;
+        } else {
+            return (3*rfBW)/2;
+        }
+    }
+
+    double getDeEmphasisTimeConstant() const
+    {
+        switch (m_deEmphasis)
+        {
+        case DeEmphasis50us:
+            return 50e-6;
+        case DeEmphasis75us:
+            return 75e-6;
+        default:
+            return 50e-6;
+        }
+    }
 };
 
 

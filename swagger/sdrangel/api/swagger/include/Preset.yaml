@@ -1,0 +1,74 @@
+DeviceConfig:
+  description: Represents a Preset::DeviceConfig object
+  properties:
+    deviceId:
+      type: string
+      description: "Device id for Device config."
+    deviceSerial:
+      type: string
+      description: "Device serial for Device config."
+    deviceSequence:
+      type: integer
+      description: "Device sequence for Device config."
+    config:
+      $ref: "http://swgserver:8081/api/swagger/include/DeviceSettings.yaml#/DeviceSettings"
+      description: "Configuration data."
+
+ChannelConfig:
+  description: Represents a Preset::ChannelConfig object
+  properties:
+    channelIdURI:
+      description: Channel type ID in URI form
+      type: string
+    config:
+      $ref: "http://swgserver:8081/api/swagger/include/ChannelSettings.yaml#/ChannelSettings"
+      description: "Configuration data."
+
+Preset:
+  description: Represents a Preset object
+  properties:
+    presetType:
+      description: >
+        Which kind of device set the preset applies to
+          * 0 - receiver
+          * 1 - transmitter
+          * 2 - MIMO
+      type: integer
+      minimum: 0
+      maximum: 2
+    group:
+      type: string
+      description: "Group for Preset."
+    description:
+      type: string
+      description: "Human-readable description."
+    centerFrequency:
+      type: integer
+      format: int64
+      description: "Device center frequency in Hz."
+    spectrumConfig:
+      $ref: "http://swgserver:8081/api/swagger/include/GLSpectrum.yaml#/GLSpectrum"
+      description: "Spectrum-display configuration."
+    dcOffsetCorrection:
+      description: boolean
+      type: integer
+      minimum: 0
+      maximum: 1
+    iqImbalanceCorrection:
+      description: boolean
+      type: integer
+      minimum: 0
+      maximum: 1
+    channelConfigs:
+      type: array
+      description: "List of channel configs."
+      items:
+        $ref: "http://swgserver:8081/api/swagger/include/Preset.yaml#/ChannelConfig"
+    deviceConfigs:
+      type: array
+      description: "List of device configs."
+      items:
+        $ref: "http://swgserver:8081/api/swagger/include/Preset.yaml#/DeviceConfig"
+    layout:
+      description: screen and dock layout is a QByteArray handled by Qt::QMainWindow translated to base64
+      type: string

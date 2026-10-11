@@ -1,5 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2018-2019 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
+// Copyright (C) 2018 beta-tester <alpha-beta-release@gmx.net>                   //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -20,6 +21,8 @@
 #include "commands/command.h"
 
 #include <QDateTime>
+
+#if QT_CONFIG(process)
 
 CommandOutputDialog::CommandOutputDialog(Command& command, QWidget* parent) :
     QDialog(parent),
@@ -166,3 +169,4 @@ void CommandOutputDialog::on_processKill_toggled(bool checked)
     }
 }
 
+#endif // QT_CONFIG(process)

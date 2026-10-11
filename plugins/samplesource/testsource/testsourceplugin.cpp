@@ -1,5 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2015-2020, 2022-2023 Edouard Griffiths, F4EXB <f4exb06@gmail.com> //
+// Copyright (C) 2019 Davide Gerhard <rainbow@irh.it>                            //
+// Copyright (C) 2020 Kacper Michajłow <kasper93@gmail.com>                      //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -18,7 +20,6 @@
 #include <QtPlugin>
 
 #include "plugin/pluginapi.h"
-#include "util/simpleserializer.h"
 
 #ifdef SERVER_MODE
 #include "testsourceinput.h"
@@ -26,18 +27,20 @@
 #include "testsourcegui.h"
 #endif
 #include "testsourceplugin.h"
+#include "testsourcewebapiadapter.h"
 
 const PluginDescriptor TestSourcePlugin::m_pluginDescriptor = {
-	QString("Test Source input"),
-	QString("4.5.2"),
-	QString("(c) Edouard Griffiths, F4EXB"),
-	QString("https://github.com/f4exb/sdrangel"),
+    QStringLiteral("TestSource"),
+	QStringLiteral("Test Source input"),
+    QStringLiteral("7.25.0"),
+	QStringLiteral("(c) Edouard Griffiths, F4EXB"),
+	QStringLiteral("https://github.com/f4exb/sdrangel"),
 	true,
-	QString("https://github.com/f4exb/sdrangel")
+	QStringLiteral("https://github.com/f4exb/sdrangel")
 };
 
-const QString TestSourcePlugin::m_hardwareID = "TestSource";
-const QString TestSourcePlugin::m_deviceTypeID = TESTSOURCE_DEVICE_TYPE_ID;
+static constexpr const char* const m_hardwareID = "TestSource";
+static constexpr const char* const m_deviceTypeID = TESTSOURCE_DEVICE_TYPE_ID;
 
 TestSourcePlugin::TestSourcePlugin(QObject* parent) :
 	QObject(parent)
@@ -54,34 +57,62 @@ void TestSourcePlugin::initPlugin(PluginAPI* pluginAPI)
 	pluginAPI->registerSampleSource(m_deviceTypeID, this);
 }
 
-PluginInterface::SamplingDevices TestSourcePlugin::enumSampleSources()
+void TestSourcePlugin::enumOriginDevices(QStringList& listedHwIds, OriginDevices& originDevices)
+{
+    if (listedHwIds.contains(m_hardwareID)) { // check if it was done
+        return;
+    }
+
+    originDevices.append(OriginDevice(
+        "TestSource",
+        m_hardwareID,
+        QString(),
+        0,
+        1, // nb Rx
+        0  // nb Tx
+    ));
+
+    listedHwIds.append(m_hardwareID);
+}
+
+PluginInterface::SamplingDevices TestSourcePlugin::enumSampleSources(const OriginDevices& originDevices)
 {
 	SamplingDevices result;
 
-    result.append(SamplingDevice(
-            "TestSource",
-            m_hardwareID,
-            m_deviceTypeID,
-            QString::null,
-            0,
-            PluginInterface::SamplingDevice::BuiltInDevice,
-            PluginInterface::SamplingDevice::StreamSingleRx,
-            1,
-            0));
+	for (OriginDevices::const_iterator it = originDevices.begin(); it != originDevices.end(); ++it)
+    {
+        if (it->hardwareId == m_hardwareID)
+        {
+            result.append(SamplingDevice(
+                it->displayableName,
+                m_hardwareID,
+                m_deviceTypeID,
+                it->serial,
+                it->sequence,
+                PluginInterface::SamplingDevice::BuiltInDevice,
+                PluginInterface::SamplingDevice::StreamSingleRx,
+                1,
+                0
+            ));
+        }
+    }
 
 	return result;
 }
 
 #ifdef SERVER_MODE
-PluginInstanceGUI* TestSourcePlugin::createSampleSourcePluginInstanceGUI(
-        const QString& sourceId __attribute((unused)),
-        QWidget **widget __attribute((unused)),
-        DeviceUISet *deviceUISet __attribute((unused)))
+DeviceGUI* TestSourcePlugin::createSampleSourcePluginInstanceGUI(
+        const QString& sourceId,
+        QWidget **widget,
+        DeviceUISet *deviceUISet)
 {
+    (void) sourceId;
+    (void) widget;
+    (void) deviceUISet;
     return 0;
 }
 #else
-PluginInstanceGUI* TestSourcePlugin::createSampleSourcePluginInstanceGUI(
+DeviceGUI* TestSourcePlugin::createSampleSourcePluginInstanceGUI(
         const QString& sourceId,
         QWidget **widget,
         DeviceUISet *deviceUISet)
@@ -96,7 +127,7 @@ PluginInstanceGUI* TestSourcePlugin::createSampleSourcePluginInstanceGUI(
 }
 #endif
 
-DeviceSampleSource *TestSourcePlugin::createSampleSourcePluginInstanceInput(const QString& sourceId, DeviceAPI *deviceAPI)
+DeviceSampleSource *TestSourcePlugin::createSampleSourcePluginInstance(const QString& sourceId, DeviceAPI *deviceAPI)
 {
     if (sourceId == m_deviceTypeID)
     {
@@ -109,3 +140,7 @@ DeviceSampleSource *TestSourcePlugin::createSampleSourcePluginInstanceInput(cons
     }
 }
 
+DeviceWebAPIAdapter *TestSourcePlugin::createDeviceWebAPIAdapter() const
+{
+    return new TestSourceWebAPIAdapter();
+}

@@ -1,5 +1,8 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2017 Edouard Griffiths, F4EXB.                                  //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2019, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>    //
+// Copyright (C) 2021 Jon Beniston, M7RCE <jon@beniston.com>                     //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -17,7 +20,7 @@
 
 #include <QColor>
 
-#include "dsp/dspengine.h"
+#include "audio/audiodevicemanager.h"
 #include "util/simpleserializer.h"
 #include "settings/serializable.h"
 
@@ -29,8 +32,9 @@ const int BFMDemodSettings::m_rfBW[] = {
 };
 
 BFMDemodSettings::BFMDemodSettings() :
-    m_channelMarker(0),
-    m_spectrumGUI(0)
+    m_channelMarker(nullptr),
+    m_spectrumGUI(nullptr),
+    m_rollupState(nullptr)
 {
     resetToDefaults();
 }
@@ -42,18 +46,23 @@ void BFMDemodSettings::resetToDefaults()
     m_afBandwidth = 15000;
     m_volume = 2.0;
     m_squelch = -60.0;
+    m_audioMute = false;
     m_audioStereo = false;
     m_lsbStereo = false;
     m_showPilot = false;
     m_rdsActive = false;
+    m_deEmphasis = DeEmphasis50us;
     m_rgbColor = QColor(80, 120, 228).rgb();
     m_title = "Broadcast FM Demod";
     m_audioDeviceName = AudioDeviceManager::m_defaultDeviceName;
+    m_streamIndex = 0;
     m_useReverseAPI = false;
     m_reverseAPIAddress = "127.0.0.1";
     m_reverseAPIPort = 8888;
     m_reverseAPIDeviceIndex = 0;
     m_reverseAPIChannelIndex = 0;
+    m_workspaceIndex = 0;
+    m_hidden = false;
 }
 
 QByteArray BFMDemodSettings::serialize() const
@@ -84,6 +93,18 @@ QByteArray BFMDemodSettings::serialize() const
     s.writeU32(16, m_reverseAPIPort);
     s.writeU32(17, m_reverseAPIDeviceIndex);
     s.writeU32(18, m_reverseAPIChannelIndex);
+    s.writeS32(19, m_streamIndex);
+
+    if (m_rollupState) {
+        s.writeBlob(20, m_rollupState->serialize());
+    }
+
+    s.writeBool(21, m_rdsActive);
+    s.writeS32(22, m_workspaceIndex);
+    s.writeBlob(23, m_geometryBytes);
+    s.writeBool(24, m_hidden);
+    s.writeBool(25, m_audioMute);
+    s.writeS32(26, m_deEmphasis);
 
     return s.final();
 }
@@ -117,18 +138,19 @@ bool BFMDemodSettings::deserialize(const QByteArray& data)
         m_squelch = tmp;
         d.readU32(7, &m_rgbColor);
 
-        d.readBlob(8, &bytetmp);
 
-        if (m_spectrumGUI) {
+        if (m_spectrumGUI)
+        {
+            d.readBlob(8, &bytetmp);
             m_spectrumGUI->deserialize(bytetmp);
         }
 
         d.readBool(9, &m_audioStereo, false);
         d.readBool(10, &m_lsbStereo, false);
 
-        d.readBlob(11, &bytetmp);
-
-        if (m_channelMarker) {
+        if (m_channelMarker)
+        {
+            d.readBlob(11, &bytetmp);
             m_channelMarker->deserialize(bytetmp);
         }
 
@@ -148,6 +170,21 @@ bool BFMDemodSettings::deserialize(const QByteArray& data)
         m_reverseAPIDeviceIndex = utmp > 99 ? 99 : utmp;
         d.readU32(18, &utmp, 0);
         m_reverseAPIChannelIndex = utmp > 99 ? 99 : utmp;
+        d.readS32(19, &m_streamIndex, 0);
+
+        if (m_rollupState)
+        {
+            d.readBlob(20, &bytetmp);
+            m_rollupState->deserialize(bytetmp);
+        }
+
+        d.readBool(21, &m_rdsActive, false);
+        d.readS32(22, &m_workspaceIndex, 0);
+        d.readBlob(23, &m_geometryBytes);
+        d.readBool(24, &m_hidden, false);
+        d.readBool(25, &m_audioMute, false);
+        d.readS32(26, &tmp, DeEmphasis50us);
+        m_deEmphasis = static_cast<DeEmphasis>(tmp);
 
         return true;
     }
@@ -156,6 +193,150 @@ bool BFMDemodSettings::deserialize(const QByteArray& data)
         resetToDefaults();
         return false;
     }
+}
+
+void BFMDemodSettings::applySettings(const QStringList& settingsKeys, const BFMDemodSettings& settings)
+{
+    if (settingsKeys.contains("inputFrequencyOffset")) {
+        m_inputFrequencyOffset = settings.m_inputFrequencyOffset;
+    }
+    if (settingsKeys.contains("rfBandwidth")) {
+        m_rfBandwidth = settings.m_rfBandwidth;
+    }
+    if (settingsKeys.contains("afBandwidth")) {
+        m_afBandwidth = settings.m_afBandwidth;
+    }
+    if (settingsKeys.contains("volume")) {
+        m_volume = settings.m_volume;
+    }
+    if (settingsKeys.contains("squelch")) {
+        m_squelch = settings.m_squelch;
+    }
+    if (settingsKeys.contains("audioMute")) {
+        m_audioMute = settings.m_audioMute;
+    }
+    if (settingsKeys.contains("audioStereo")) {
+        m_audioStereo = settings.m_audioStereo;
+    }
+    if (settingsKeys.contains("lsbStereo")) {
+        m_lsbStereo = settings.m_lsbStereo;
+    }
+    if (settingsKeys.contains("showPilot")) {
+        m_showPilot = settings.m_showPilot;
+    }
+    if (settingsKeys.contains("rdsActive")) {
+        m_rdsActive = settings.m_rdsActive;
+    }
+    if (settingsKeys.contains("deEmphasis")) {
+        m_deEmphasis = settings.m_deEmphasis;
+    }
+    if (settingsKeys.contains("rgbColor")) {
+        m_rgbColor = settings.m_rgbColor;
+    }
+    if (settingsKeys.contains("title")) {
+        m_title = settings.m_title;
+    }
+    if (settingsKeys.contains("audioDeviceName")) {
+        m_audioDeviceName = settings.m_audioDeviceName;
+    }
+    if (settingsKeys.contains("streamIndex")) {
+        m_streamIndex = settings.m_streamIndex;
+    }
+    if (settingsKeys.contains("useReverseAPI")) {
+        m_useReverseAPI = settings.m_useReverseAPI;
+    }
+    if (settingsKeys.contains("reverseAPIAddress")) {
+        m_reverseAPIAddress = settings.m_reverseAPIAddress;
+    }
+    if (settingsKeys.contains("reverseAPIPort")) {
+        m_reverseAPIPort = settings.m_reverseAPIPort;
+    }
+    if (settingsKeys.contains("reverseAPIDeviceIndex")) {
+        m_reverseAPIDeviceIndex = settings.m_reverseAPIDeviceIndex;
+    }
+    if (settingsKeys.contains("reverseAPIChannelIndex")) {
+        m_reverseAPIChannelIndex = settings.m_reverseAPIChannelIndex;
+    }
+    if (settingsKeys.contains("workspaceIndex")) {
+        m_workspaceIndex = settings.m_workspaceIndex;
+    }
+    if (settingsKeys.contains("hidden")) {
+        m_hidden = settings.m_hidden;
+    }
+}
+
+QString BFMDemodSettings::getDebugString(const QStringList& settingsKeys, bool force) const
+{
+    std::ostringstream ostr;
+
+    if (settingsKeys.contains("inputFrequencyOffset") || force) {
+        ostr << " m_inputFrequencyOffset: " << m_inputFrequencyOffset;
+    }
+    if (settingsKeys.contains("rfBandwidth") || force) {
+        ostr << " m_rfBandwidth: " << m_rfBandwidth;
+    }
+    if (settingsKeys.contains("afBandwidth") || force) {
+        ostr << " m_afBandwidth: " << m_afBandwidth;
+    }
+    if (settingsKeys.contains("volume") || force) {
+        ostr << " m_volume: " << m_volume;
+    }
+    if (settingsKeys.contains("squelch") || force) {
+        ostr << " m_squelch: " << m_squelch;
+    }
+    if (settingsKeys.contains("audioMute") || force) {
+        ostr << " m_audioMute: " << m_audioMute;
+    }
+    if (settingsKeys.contains("audioStereo") || force) {
+        ostr << " m_audioStereo: " << m_audioStereo;
+    }
+    if (settingsKeys.contains("lsbStereo") || force) {
+        ostr << " m_lsbStereo: " << m_lsbStereo;
+    }
+    if (settingsKeys.contains("showPilot") || force) {
+        ostr << " m_showPilot: " << m_showPilot;
+    }
+    if (settingsKeys.contains("rdsActive") || force) {
+        ostr << " m_rdsActive: " << m_rdsActive;
+    }
+    if (settingsKeys.contains("deEmphasis") || force) {
+        ostr << " m_deEmphasis: " << m_deEmphasis;
+    }
+    if (settingsKeys.contains("rgbColor") || force) {
+        ostr << " m_rgbColor: " << m_rgbColor;
+    }
+    if (settingsKeys.contains("title") || force) {
+        ostr << " m_title: " << m_title.toStdString();
+    }
+    if (settingsKeys.contains("audioDeviceName") || force) {
+        ostr << " m_audioDeviceName: " << m_audioDeviceName.toStdString();
+    }
+    if (settingsKeys.contains("streamIndex") || force) {
+        ostr << " m_streamIndex: " << m_streamIndex;
+    }
+    if (settingsKeys.contains("useReverseAPI") || force) {
+        ostr << " m_useReverseAPI: " << m_useReverseAPI;
+    }
+    if (settingsKeys.contains("reverseAPIAddress") || force) {
+        ostr << " m_reverseAPIAddress: " << m_reverseAPIAddress.toStdString();
+    }
+    if (settingsKeys.contains("reverseAPIPort") || force) {
+        ostr << " m_reverseAPIPort: " << m_reverseAPIPort;
+    }
+    if (settingsKeys.contains("reverseAPIDeviceIndex") || force) {
+        ostr << " m_reverseAPIDeviceIndex: " << m_reverseAPIDeviceIndex;
+    }
+    if (settingsKeys.contains("reverseAPIChannelIndex") || force) {
+        ostr << " m_reverseAPIChannelIndex: " << m_reverseAPIChannelIndex;
+    }
+    if (settingsKeys.contains("workspaceIndex") || force) {
+        ostr << " m_workspaceIndex: " << m_workspaceIndex;
+    }
+    if (settingsKeys.contains("hidden") || force) {
+        ostr << " m_hidden: " << m_hidden;
+    }
+
+    return QString(ostr.str().c_str());
 }
 
 int BFMDemodSettings::getRFBW(int index)

@@ -1,53 +1,74 @@
 project(localsink)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(localsink_SOURCES
-	localsink.cpp
-	localsinkgui.cpp
-	localsinksettings.cpp
-	localsinkthread.cpp
-	localsinkplugin.cpp
+    localsink.cpp
+    localsinkbaseband.cpp
+    localsinksink.cpp
+    localsinksettings.cpp
+    localsinkwebapiadapter.cpp
+    localsinkworker.cpp
+    localsinkplugin.cpp
 )
 
 set(localsink_HEADERS
 	localsink.h
-	localsinkgui.h
-	localsinksettings.h
-	localsinkthread.h
+    localsinkbaseband.h
+    localsinksink.h
+    localsinksettings.h
+    localsinkwebapiadapter.h
+	localsinkworker.h
 	localsinkplugin.h
 )
 
-set(localsink_FORMS
-	localsinkgui.ui
-)
-
-#include(${QT_USE_FILE})
-add_definitions(${QT_DEFINITIONS})
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
-
-qt5_wrap_ui(localsink_FORMS_HEADERS ${localsink_FORMS})
-
-add_library(localsink SHARED
-	${localsink_SOURCES}
-	${localsink_HEADERS_MOC}
-	${localsink_FORMS_HEADERS}
-)
-
-target_include_directories(localsink PUBLIC
-    .
-    ${CMAKE_CURRENT_BINARY_DIR}
+include_directories(
     ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
+    ${Boost_INCLUDE_DIRS}
 )
 
-target_link_libraries(localsink
-    ${QT_LIBRARIES}
-    sdrbase
-    sdrgui
+if(NOT SERVER_MODE)
+    set(localsink_SOURCES
+        ${localsink_SOURCES}
+        localsinkgui.cpp
+        localsinkgui.ui
+    )
+    set(localsink_HEADERS
+        ${localsink_HEADERS}
+        localsinkgui.h
+    )
+    set(TARGET_NAME ${PLUGINS_PREFIX}localsink)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}localsinksrv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
+
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${localsink_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME LocalSinkPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${localsink_SOURCES})
+endif()
+
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+target_link_libraries(${TARGET_NAME} PRIVATE
+    Qt::Core
+    ${TARGET_LIB}
+	sdrbase
+	${TARGET_LIB_GUI}
     swagger
 )
 
-target_link_libraries(localsink Qt5::Core Qt5::Widgets)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-install(TARGETS localsink DESTINATION lib/plugins/channelrx)
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

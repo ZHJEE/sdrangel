@@ -1,5 +1,8 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2019 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
+// Copyright (C) 2015 John Greb <hexameron@spam.no>                              //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -21,6 +24,7 @@
 #include <stdint.h>
 #include <SoapySDR/Device.hpp>
 
+#include "plugin/plugininterface.h"
 #include "export.h"
 #include "devicesoapysdrscan.h"
 
@@ -28,8 +32,9 @@ class DEVICES_API DeviceSoapySDR
 {
 public:
     static DeviceSoapySDR& instance();
-    SoapySDR::Device *openSoapySDR(uint32_t sequence);
+    SoapySDR::Device *openSoapySDR(uint32_t sequence, const QString& hardwareUserArguments);
     void closeSoapySdr(SoapySDR::Device *device);
+    void enumOriginDevices(const QString& hardwareId, PluginInterface::OriginDevices& originDevices);
 
     uint32_t getNbDevices() const { return m_scanner.getNbDevices(); }
     const std::vector<DeviceSoapySDRScan::SoapySDRDeviceEnum>& getDevicesEnumeration() const { return m_scanner.getDevicesEnumeration(); }
@@ -43,7 +48,7 @@ protected:
     ~DeviceSoapySDR();
 
 private:
-    SoapySDR::Device *openopenSoapySDRFromSequence(uint32_t sequence);
+    SoapySDR::Device *openopenSoapySDRFromSequence(uint32_t sequence, const QString& hardwareUserArguments);
     DeviceSoapySDRScan m_scanner;
 };
 

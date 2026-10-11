@@ -1,5 +1,9 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2019 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2019 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
+// Copyright (C) 2015 John Greb <hexameron@spam.no>                              //
+// Copyright (C) 2020 Kacper Michajłow <kasper93@gmail.com>                      //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -15,8 +19,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.          //
 ///////////////////////////////////////////////////////////////////////////////////
 
-#define _USE_MATH_DEFINES
-#include <math.h>
+#include <cmath>
 #include <algorithm>
 #include <QDebug>
 
@@ -30,9 +33,13 @@ const float AudioFilter::m_hpa[3] = {1.000000e+00,  1.667871e+00, -7.156964e-01}
 const float AudioFilter::m_hpb[3] = {8.459039e-01, -1.691760e+00,  8.459039e-01};
 
 AudioFilter::AudioFilter() :
-        m_filterLP(m_lpa, m_lpb),
-        m_filterHP(m_hpa, m_hpb),
-        m_useHP(false)
+    m_filterLP(m_lpa, m_lpb),
+    m_filterHP(m_hpa, m_hpb),
+    m_useHP(false),
+    m_lpva{},
+    m_lpvb{},
+    m_hpva{},
+    m_hpvb{}
 {}
 
 AudioFilter::~AudioFilter()

@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2018-2020 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -68,15 +68,10 @@ void DeviceSoapySDRScan::scan()
             SoapySDR::Kwargs::const_iterator kargIt;
 
             if ((kargIt = kit->find("label")) != kit->end()) {
-                m_deviceEnums.back().m_label = QString(kargIt->second.c_str());
+                m_deviceEnums.back().m_label = QString("%1: %2").arg(m_deviceEnums.back().m_driverName).arg(kargIt->second.c_str());
             } else { // if no label is registered for this device then create a label with the driver name and sequence
                 m_deviceEnums.back().m_label = QString("%1-%2").arg(m_deviceEnums.back().m_driverName).arg(deviceSeq);
             }
-
-            qDebug("DeviceSoapySDRScan::scan: %s #%u %s",
-                    m_deviceEnums.back().m_driverName.toStdString().c_str(),
-                    deviceSeq,
-                    m_deviceEnums.back().m_label.toStdString().c_str());
 
             if ((kargIt = kit->find("serial")) != kit->end())
             {
@@ -93,6 +88,13 @@ void DeviceSoapySDRScan::scan()
                 m_deviceEnums.back().m_idKey = QString(kargIt->first.c_str());
                 m_deviceEnums.back().m_idValue = QString(kargIt->second.c_str());
             }
+
+            qDebug("DeviceSoapySDRScan::scan: %s #%u %s id: %s=%s",
+                    m_deviceEnums.back().m_driverName.toStdString().c_str(),
+                    deviceSeq,
+                    m_deviceEnums.back().m_label.toStdString().c_str(),
+                    m_deviceEnums.back().m_idKey.toStdString().c_str(),
+                    m_deviceEnums.back().m_idValue.toStdString().c_str());
 
             // access the device to get the number of Rx and Tx channels and at the same time probe
             // whether it is available for Soapy

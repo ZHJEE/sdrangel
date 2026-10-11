@@ -1,6 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018 F4EXB                                                      //
-// written by Edouard Griffiths                                                  //
+// Copyright (C) 2018-2019, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>    //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -20,6 +19,7 @@
 #include <thread>
 
 #include "scopevisxy.h"
+#include "util/message.h"
 #include "gui/tvscreen.h"
 
 ScopeVisXY::ScopeVisXY(TVScreen *tvScreen) :
@@ -85,7 +85,6 @@ void ScopeVisXY::feed(const SampleVector::const_iterator& cbegin, const SampleVe
             }
 
 			m_tvScreen->renderImage(0);
-			m_tvScreen->update();
             std::this_thread::sleep_for(std::chrono::microseconds(5000));
 			m_tvScreen->resetImage(m_alphaReset);
             drawGraticule();
@@ -100,6 +99,19 @@ void ScopeVisXY::start()
 
 void ScopeVisXY::stop()
 {
+}
+
+void ScopeVisXY::handleInputMessages()
+{
+	Message* message;
+
+	while ((message = m_inputMessageQueue.pop()))
+	{
+		if (!handleMessage(*message)) {
+			qDebug("%s: unhandled message: %s", Q_FUNC_INFO, message->getIdentifier());
+		}
+		delete message;
+	}
 }
 
 bool ScopeVisXY::handleMessage(const Message& message)

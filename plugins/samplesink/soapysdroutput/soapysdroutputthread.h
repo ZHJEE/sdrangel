@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2015 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2018-2019 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -27,6 +27,7 @@
 
 #include "soapysdr/devicesoapysdrshared.h"
 #include "dsp/interpolators.h"
+#include "dsp/interpolatorsif.h"
 
 class SampleSourceFifo;
 
@@ -34,13 +35,14 @@ class SoapySDROutputThread : public QThread {
     Q_OBJECT
 
 public:
-    SoapySDROutputThread(SoapySDR::Device* dev, unsigned int nbTxChannels, QObject* parent = 0);
+    SoapySDROutputThread(SoapySDR::Device* dev, unsigned int nbTxChannels, QObject* parent = nullptr);
     ~SoapySDROutputThread();
 
     void startWork();
     void stopWork();
     bool isRunning() const { return m_running; }
     unsigned int getNbChannels() const { return m_nbChannels; }
+    void getStreamStatus(bool& active, quint64& packets, quint32& underflows, quint32& errors);
     void setLog2Interpolation(unsigned int channel, unsigned int log2_interp);
     unsigned int getLog2Interpolation(unsigned int channel) const;
     void setSampleRate(unsigned int sampleRate) { m_sampleRate = sampleRate; }
@@ -56,6 +58,7 @@ private:
         Interpolators<qint8, SDR_TX_SAMP_SZ, 8> m_interpolators8;
         Interpolators<qint16, SDR_TX_SAMP_SZ, 12> m_interpolators12;
         Interpolators<qint16, SDR_TX_SAMP_SZ, 16> m_interpolators16;
+        InterpolatorsIF<SDR_TX_SAMP_SZ, SDR_TX_SAMP_SZ> m_interpolatorsIF;
 
         Channel() :
             m_sampleFifo(0),
@@ -85,12 +88,23 @@ private:
     unsigned int m_nbChannels;
     InterpolatorType m_interpolatorType;
 
+    // Diagnostic counters
+    quint64 m_packets;              //!< Total packets (writeStream calls) sent
+    quint32 m_underflows;           //!< Underflow / timeout events
+    quint32 m_errors;               //!< Fatal write stream errors (SOAPY_SDR_ERR_*)
+    quint32 m_consecutiveErrors;    //!< Consecutive non-fatal errors before break
+
     void run();
     unsigned int getNbFifos();
     void callbackSO8(qint8* buf, qint32 len, unsigned int channel = 0);
     void callbackSO12(qint16* buf, qint32 len, unsigned int channel = 0);
     void callbackSO16(qint16* buf, qint32 len, unsigned int channel = 0);
+    void callbackSOIF(float* buf, qint32 len, unsigned int channel = 0);
     void callbackMO(std::vector<void *>& buffs, qint32 samplesPerChannel);
+    void callbackPart8(qint8* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd, unsigned int channel);
+    void callbackPart12(qint16* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd, unsigned int channel);
+    void callbackPart16(qint16* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd, unsigned int channel);
+    void callbackPartF(float* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd, unsigned int channel);
 };
 
 

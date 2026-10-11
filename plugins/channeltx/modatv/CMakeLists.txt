@@ -1,54 +1,81 @@
 project(modatv)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(modatv_SOURCES
-	atvmod.cpp
-	atvmodgui.cpp
+    atvmod.cpp
+    atvmodbaseband.cpp
+    atvmodreport.cpp
+    atvmodsource.cpp
 	atvmodplugin.cpp
-	atvmodsettings.cpp
+    atvmodsettings.cpp
+    atvmodwebapiadapter.cpp
 )
 
 set(modatv_HEADERS
 	atvmod.h
-	atvmodgui.h
+    atvmodbaseband.h
+    atvmodreport.h
+    atvmodsource.h
 	atvmodplugin.h
-	atvmodsettings.h
+    atvmodsettings.h
+    atvmodwebapiadapter.h
 )
-
-set(modatv_FORMS
-	atvmodgui.ui
-)
-
-# OpenCV variables defined in /usr/share/OpenCV/OpenCVConfig.cmake (Ubuntu)
 
 include_directories(
-	.
 	${OpenCV_INCLUDE_DIRS}
-	${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client	
+        ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
 )
 
-add_definitions(${QT_DEFINITIONS})
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
+if(NOT SERVER_MODE)
+    set(modatv_SOURCES
+        ${modatv_SOURCES}
+        atvmodgui.cpp
 
-qt5_wrap_ui(modatv_FORMS_HEADERS ${modatv_FORMS})
+        atvmodgui.ui
+    )
+    set(modatv_HEADERS
+        ${modatv_HEADERS}
+        atvmodgui.h
+    )
 
-add_library(modatv SHARED
-	${modatv_SOURCES}
-	${modatv_HEADERS_MOC}
-	${modatv_FORMS_HEADERS}
-)
+    set(TARGET_NAME ${PLUGINS_PREFIX}modatv)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}modatvsrv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
 
-target_link_libraries(modatv
-    ${OpenCV_LIBS}
-	${QT_LIBRARIES}
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${modatv_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME ATVModPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${modatv_SOURCES})
+endif()
+
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+target_link_libraries(${TARGET_NAME} PRIVATE
+        Qt::Core
+        ${TARGET_LIB}
 	sdrbase
-	sdrgui
-	swagger
+	${TARGET_LIB_GUI}
+        swagger
+        "${OpenCV_LIBS}"
 )
 
-target_link_libraries(modatv Qt5::Core Qt5::Widgets)
+if(DEFINED OpenCV_DEPENDS)
+    add_dependencies(${TARGET_NAME} ${OpenCV_DEPENDS})
+endif()
 
-install(TARGETS modatv DESTINATION lib/plugins/channeltx)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
+
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

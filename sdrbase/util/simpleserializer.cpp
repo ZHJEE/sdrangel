@@ -1,3 +1,21 @@
+///////////////////////////////////////////////////////////////////////////////////////
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany     //
+// written by Christian Daniel                                                       //
+// Copyright (C) 2014 John Greb <hexameron@spam.no>                                  //
+//                                                                                   //
+// This program is free software; you can redistribute it and/or modify              //
+// it under the terms of the GNU General Public License as published by              //
+// the Free Software Foundation as version 3 of the License, or                      //
+// (at your option) any later version.                                               //
+//                                                                                   //
+// This program is distributed in the hope that it will be useful,                   //
+// but WITHOUT ANY WARRANTY; without even the implied warranty of                    //
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the                      //
+// GNU General Public License V3 for more details.                                   //
+//                                                                                   //
+// You should have received a copy of the GNU General Public License                 //
+// along with this program. If not, see <http://www.gnu.org/licenses/>.              //
+///////////////////////////////////////////////////////////////////////////////////////
 #include <stdint.h>
 #include "util/simpleserializer.h"
 
@@ -295,7 +313,8 @@ bool SimpleSerializer::writeTag(Type type, quint32 id, quint32 length)
 }
 
 SimpleDeserializer::SimpleDeserializer(const QByteArray& data) :
-	m_data(data)
+    m_data(data),
+    m_version(0)
 {
 	m_valid = parseAll();
 
@@ -322,7 +341,7 @@ setInvalid:
 bool SimpleDeserializer::readS32(quint32 id, qint32* result, qint32 def) const
 {
 	uint readOfs;
-	qint32 tmp;
+	quint32 tmp;
 	Elements::const_iterator it = m_elements.constFind(id);
 	if(it == m_elements.constEnd())
 		goto returnDefault;
@@ -336,10 +355,10 @@ bool SimpleDeserializer::readS32(quint32 id, qint32* result, qint32 def) const
 	for(uint i = 0; i < it->length; i++) {
 		quint8 byte = readByte(&readOfs);
 		if((i == 0) && (byte & 0x80))
-			tmp = -1;
+			tmp = 0xFFFFFFFF;
 		tmp = (tmp << 8) | byte;
 	}
-	*result = tmp;
+	*result = static_cast<qint32>(tmp);
 	return true;
 
 returnDefault:
@@ -374,7 +393,7 @@ returnDefault:
 bool SimpleDeserializer::readS64(quint32 id, qint64* result, qint64 def) const
 {
 	uint readOfs;
-	qint64 tmp;
+	quint64 tmp;
 	Elements::const_iterator it = m_elements.constFind(id);
 	if(it == m_elements.constEnd())
 		goto returnDefault;
@@ -388,10 +407,10 @@ bool SimpleDeserializer::readS64(quint32 id, qint64* result, qint64 def) const
 	for(uint i = 0; i < it->length; i++) {
 		quint8 byte = readByte(&readOfs);
 		if((i == 0) && (byte & 0x80))
-			tmp = -1;
+			tmp = 0xFFFFFFFFFFFFFFFFULL;
 		tmp = (tmp << 8) | byte;
 	}
-	*result = tmp;
+	*result = static_cast<qint64>(tmp);
 	return true;
 
 returnDefault:

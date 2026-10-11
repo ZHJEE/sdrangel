@@ -1,5 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018-2019 Edouard Griffiths, F4EXB                              //
+// Copyright (C) 2018-2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
+// Copyright (C) 2021-2023 Jon Beniston, M7RCE <jon@beniston.com>                //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -15,15 +16,19 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.          //
 ///////////////////////////////////////////////////////////////////////////////////
 
-#include "remotesourcegui.h"
+#include <QTime>
 
 #include "device/deviceapi.h"
 #include "device/deviceuiset.h"
+#include "dsp/hbfilterchainconverter.h"
+#include "dsp/dspcommands.h"
 #include "gui/basicchannelsettingsdialog.h"
-#include "mainwindow.h"
+#include "gui/dialogpositioner.h"
 
 #include "remotesource.h"
 #include "ui_remotesourcegui.h"
+
+#include "remotesourcegui.h"
 
 RemoteSourceGUI* RemoteSourceGUI::create(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, BasebandSampleSource *channelTx)
 {
@@ -36,30 +41,11 @@ void RemoteSourceGUI::destroy()
     delete this;
 }
 
-void RemoteSourceGUI::setName(const QString& name)
-{
-    setObjectName(name);
-}
-
-QString RemoteSourceGUI::getName() const
-{
-    return objectName();
-}
-
-qint64 RemoteSourceGUI::getCenterFrequency() const {
-    return 0;
-}
-
-void RemoteSourceGUI::setCenterFrequency(qint64 centerFrequency)
-{
-    (void) centerFrequency;
-}
-
 void RemoteSourceGUI::resetToDefaults()
 {
     m_settings.resetToDefaults();
     displaySettings();
-    applySettings(true);
+    applySettings(QStringList(), true);
 }
 
 QByteArray RemoteSourceGUI::serialize() const
@@ -71,7 +57,7 @@ bool RemoteSourceGUI::deserialize(const QByteArray& data)
 {
     if(m_settings.deserialize(data)) {
         displaySettings();
-        applySettings(true);
+        applySettings(QStringList(), true);
         return true;
     } else {
         resetToDefaults();
@@ -81,10 +67,13 @@ bool RemoteSourceGUI::deserialize(const QByteArray& data)
 
 bool RemoteSourceGUI::handleMessage(const Message& message)
 {
-    if (RemoteSource::MsgSampleRateNotification::match(message))
+    if (DSPSignalNotification::match(message))
     {
-        RemoteSource::MsgSampleRateNotification& notif = (RemoteSource::MsgSampleRateNotification&) message;
-        m_channelMarker.setBandwidth(notif.getSampleRate());
+        DSPSignalNotification& notif = (DSPSignalNotification&) message;
+        m_deviceCenterFrequency = notif.getCenterFrequency();
+        m_basebandSampleRate = notif.getSampleRate();
+        updateAbsoluteCenterFrequency();
+        displayRateAndShift();
         return true;
     }
     else if (RemoteSource::MsgConfigureRemoteSource::match(message))
@@ -92,6 +81,7 @@ bool RemoteSourceGUI::handleMessage(const Message& message)
         const RemoteSource::MsgConfigureRemoteSource& cfg = (RemoteSource::MsgConfigureRemoteSource&) message;
         m_settings = cfg.getSettings();
         blockApplySettings(true);
+        m_channelMarker.updateSettings(static_cast<const ChannelMarker*>(m_settings.m_channelMarker));
         displaySettings();
         blockApplySettings(false);
         return true;
@@ -99,7 +89,16 @@ bool RemoteSourceGUI::handleMessage(const Message& message)
     else if (RemoteSource::MsgReportStreamData::match(message))
     {
         const RemoteSource::MsgReportStreamData& report = (RemoteSource::MsgReportStreamData&) message;
-        ui->sampleRate->setText(QString("%1").arg(report.get_sampleRate()));
+
+        int remoteSampleRate = report.get_sampleRate();
+
+        if (remoteSampleRate != m_remoteSampleRate)
+        {
+            m_channelMarker.setBandwidth(remoteSampleRate);
+            m_remoteSampleRate = remoteSampleRate;
+        }
+
+        ui->sampleRate->setText(QString("%1").arg(remoteSampleRate));
         QString nominalNbBlocksText = QString("%1/%2")
                 .arg(report.get_nbOriginalBlocks() + report.get_nbFECBlocks())
                 .arg(report.get_nbFECBlocks());
@@ -156,10 +155,14 @@ bool RemoteSourceGUI::handleMessage(const Message& message)
 }
 
 RemoteSourceGUI::RemoteSourceGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet, BasebandSampleSource *channelTx, QWidget* parent) :
-        RollupWidget(parent),
+        ChannelGUI(parent),
         ui(new Ui::RemoteSourceGUI),
         m_pluginAPI(pluginAPI),
         m_deviceUISet(deviceUISet),
+        m_deviceCenterFrequency(0),
+        m_remoteSampleRate(48000),
+        m_basebandSampleRate(48000),
+        m_shiftFrequencyFactor(0.0),
         m_countUnrecoverable(0),
         m_countRecovered(0),
         m_lastCountUnrecoverable(0),
@@ -169,10 +172,13 @@ RemoteSourceGUI::RemoteSourceGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet,
         m_resetCounts(true),
         m_tickCount(0)
 {
-    (void) channelTx;
-    ui->setupUi(this);
     setAttribute(Qt::WA_DeleteOnClose, true);
-    connect(this, SIGNAL(widgetRolled(QWidget*,bool)), this, SLOT(onWidgetRolled(QWidget*,bool)));
+    m_helpURL = "plugins/channeltx/remotesource/readme.md";
+    RollupContents *rollupContents = getRollupContents();
+	ui->setupUi(rollupContents);
+    setSizePolicy(rollupContents->sizePolicy());
+    rollupContents->arrangeRollups();
+	connect(rollupContents, SIGNAL(widgetRolled(QWidget*,bool)), this, SLOT(onWidgetRolled(QWidget*,bool)));
     connect(this, SIGNAL(customContextMenuRequested(const QPoint &)), this, SLOT(onMenuDialogCalled(const QPoint &)));
 
     m_remoteSrc = (RemoteSource*) channelTx;
@@ -184,14 +190,14 @@ RemoteSourceGUI::RemoteSourceGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet,
     m_channelMarker.setColor(m_settings.m_rgbColor);
     m_channelMarker.setCenterFrequency(0);
     m_channelMarker.setTitle("Remote source");
+    m_channelMarker.setSourceOrSinkStream(false);
     m_channelMarker.blockSignals(false);
     m_channelMarker.setVisible(true); // activate signal on the last setting only
 
     m_settings.setChannelMarker(&m_channelMarker);
+    m_settings.setRollupState(&m_rollupState);
 
-    m_deviceUISet->registerTxChannelInstance(RemoteSource::m_channelIdURI, this);
     m_deviceUISet->addChannelMarker(&m_channelMarker);
-    m_deviceUISet->addRollupWidget(this);
 
     connect(&m_channelMarker, SIGNAL(changedByCursor()), this, SLOT(channelMarkerChangedByCursor()));
     connect(getInputMessageQueue(), SIGNAL(messageEnqueued()), this, SLOT(handleSourceMessages()));
@@ -199,13 +205,15 @@ RemoteSourceGUI::RemoteSourceGUI(PluginAPI* pluginAPI, DeviceUISet *deviceUISet,
     m_time.start();
 
     displaySettings();
-    applySettings(true);
+    makeUIConnections();
+    displayPosition();
+    displayRateAndShift();
+    applySettings(QStringList(), true);
+    m_resizer.enableChildMouseTracking();
 }
 
 RemoteSourceGUI::~RemoteSourceGUI()
 {
-    m_deviceUISet->removeTxChannelInstance(this);
-    delete m_remoteSrc;
     delete ui;
 }
 
@@ -214,13 +222,13 @@ void RemoteSourceGUI::blockApplySettings(bool block)
     m_doApplySettings = !block;
 }
 
-void RemoteSourceGUI::applySettings(bool force)
+void RemoteSourceGUI::applySettings(const QStringList& settingsKeys, bool force)
 {
     if (m_doApplySettings)
     {
         setTitleColor(m_channelMarker.getColor());
 
-        RemoteSource::MsgConfigureRemoteSource* message = RemoteSource::MsgConfigureRemoteSource::create(m_settings, force);
+        RemoteSource::MsgConfigureRemoteSource* message = RemoteSource::MsgConfigureRemoteSource::create(settingsKeys, m_settings, force);
         m_remoteSrc->getInputMessageQueue()->push(message);
     }
 }
@@ -230,27 +238,52 @@ void RemoteSourceGUI::displaySettings()
     m_channelMarker.blockSignals(true);
     m_channelMarker.setCenterFrequency(0);
     m_channelMarker.setTitle(m_settings.m_title);
-    m_channelMarker.setBandwidth(5000); // TODO
+    m_channelMarker.setBandwidth(m_remoteSampleRate);
     m_channelMarker.blockSignals(false);
     m_channelMarker.setColor(m_settings.m_rgbColor); // activate signal on the last setting only
 
     setTitleColor(m_settings.m_rgbColor);
     setWindowTitle(m_channelMarker.getTitle());
+    setTitle(m_channelMarker.getTitle());
+    updateIndexLabel();
 
     blockApplySettings(true);
     ui->dataAddress->setText(m_settings.m_dataAddress);
     ui->dataPort->setText(tr("%1").arg(m_settings.m_dataPort));
+    getRollupContents()->restoreState(m_rollupState);
+    updateAbsoluteCenterFrequency();
     blockApplySettings(false);
 }
 
-void RemoteSourceGUI::leaveEvent(QEvent*)
+void RemoteSourceGUI::displayRateAndShift()
 {
-    m_channelMarker.setHighlighted(false);
+    int shift = m_shiftFrequencyFactor * m_basebandSampleRate;
+    double channelSampleRate = ((double) m_basebandSampleRate) / (1<<m_settings.m_log2Interp);
+    QLocale loc;
+    ui->offsetFrequencyText->setText(tr("%1 Hz").arg(loc.toString(shift)));
+    ui->channelRateText->setText(tr("%1k").arg(QString::number(channelSampleRate / 1000.0, 'g', 5)));
+    m_channelMarker.setCenterFrequency(shift);
+    m_channelMarker.setBandwidth(channelSampleRate);
 }
 
-void RemoteSourceGUI::enterEvent(QEvent*)
+void RemoteSourceGUI::displayPosition()
+{
+    ui->filterChainIndex->setText(tr("%1").arg(m_settings.m_filterChainHash));
+    QString s;
+    HBFilterChainConverter::convertToString(m_settings.m_log2Interp, m_settings.m_filterChainHash, s);
+    ui->filterChainText->setText(s);
+}
+
+void RemoteSourceGUI::leaveEvent(QEvent* event)
+{
+    m_channelMarker.setHighlighted(false);
+    ChannelGUI::leaveEvent(event);
+}
+
+void RemoteSourceGUI::enterEvent(EnterEventType* event)
 {
     m_channelMarker.setHighlighted(true);
+    ChannelGUI::enterEvent(event);
 }
 
 void RemoteSourceGUI::handleSourceMessages()
@@ -270,11 +303,14 @@ void RemoteSourceGUI::onWidgetRolled(QWidget* widget, bool rollDown)
 {
     (void) widget;
     (void) rollDown;
+
+    getRollupContents()->saveState(m_rollupState);
+    applySettings(QStringList());
 }
 
 void RemoteSourceGUI::onMenuDialogCalled(const QPoint &p)
 {
-    if (m_contextMenuType == ContextMenuChannelSettings)
+    if (m_contextMenuType == ContextMenuType::ContextMenuChannelSettings)
     {
         BasicChannelSettingsDialog dialog(&m_channelMarker, this);
         dialog.setUseReverseAPI(m_settings.m_useReverseAPI);
@@ -282,8 +318,16 @@ void RemoteSourceGUI::onMenuDialogCalled(const QPoint &p)
         dialog.setReverseAPIPort(m_settings.m_reverseAPIPort);
         dialog.setReverseAPIDeviceIndex(m_settings.m_reverseAPIDeviceIndex);
         dialog.setReverseAPIChannelIndex(m_settings.m_reverseAPIChannelIndex);
+        dialog.setDefaultTitle(m_displayedName);
+
+        if (m_deviceUISet->m_deviceMIMOEngine)
+        {
+            dialog.setNumberOfStreams(m_remoteSrc->getNumberOfDeviceStreams());
+            dialog.setStreamIndex(m_settings.m_streamIndex);
+        }
 
         dialog.move(p);
+        new DialogPositioner(&dialog, false);
         dialog.exec();
 
         m_settings.m_rgbColor = m_channelMarker.getColor().rgb();
@@ -295,18 +339,39 @@ void RemoteSourceGUI::onMenuDialogCalled(const QPoint &p)
         m_settings.m_reverseAPIChannelIndex = dialog.getReverseAPIChannelIndex();
 
         setWindowTitle(m_settings.m_title);
+        setTitle(m_channelMarker.getTitle());
         setTitleColor(m_settings.m_rgbColor);
 
-        applySettings();
+        if (m_deviceUISet->m_deviceMIMOEngine)
+        {
+            m_settings.m_streamIndex = dialog.getSelectedStreamIndex();
+            m_channelMarker.clearStreamIndexes();
+            m_channelMarker.addStreamIndex(m_settings.m_streamIndex);
+            updateIndexLabel();
+        }
+
+        applySettings(QStringList({"color", "title", "useReverseAPI", "reverseAPIAddress", "reverseAPIPort", "reverseAPIDeviceIndex", "reverseAPIChannelIndex", "streamIndex"}));
     }
 
     resetContextMenuType();
 }
 
+void RemoteSourceGUI::on_interpolationFactor_currentIndexChanged(int index)
+{
+    m_settings.m_log2Interp = index;
+    applyInterpolation();
+}
+
+void RemoteSourceGUI::on_position_valueChanged(int value)
+{
+    m_settings.m_filterChainHash = value;
+    applyPosition();
+}
+
 void RemoteSourceGUI::on_dataAddress_returnPressed()
 {
     m_settings.m_dataAddress = ui->dataAddress->text();
-    applySettings();
+    applySettings(QStringList({"dataAddress"}));
 }
 
 void RemoteSourceGUI::on_dataPort_returnPressed()
@@ -314,16 +379,13 @@ void RemoteSourceGUI::on_dataPort_returnPressed()
     bool dataOk;
     int dataPort = ui->dataPort->text().toInt(&dataOk);
 
-    if((!dataOk) || (dataPort < 1024) || (dataPort > 65535))
-    {
+    if ((!dataOk) || (dataPort < 1024) || (dataPort > 65535)) {
         return;
-    }
-    else
-    {
+    } else {
         m_settings.m_dataPort = dataPort;
     }
 
-    applySettings();
+    applySettings(QStringList({"dataPort"}));
 }
 
 void RemoteSourceGUI::on_dataApplyButton_clicked(bool checked)
@@ -334,12 +396,11 @@ void RemoteSourceGUI::on_dataApplyButton_clicked(bool checked)
     bool dataOk;
     int udpDataPort = ui->dataPort->text().toInt(&dataOk);
 
-    if((dataOk) && (udpDataPort >= 1024) && (udpDataPort < 65535))
-    {
+    if ((dataOk) && (udpDataPort >= 1024) && (udpDataPort < 65535)) {
         m_settings.m_dataPort = udpDataPort;
     }
 
-    applySettings();
+    applySettings(QStringList({"dataAddress", "dataPort"}));
 }
 
 void RemoteSourceGUI::on_eventCountsReset_clicked(bool checked)
@@ -350,6 +411,32 @@ void RemoteSourceGUI::on_eventCountsReset_clicked(bool checked)
     m_time.start();
     displayEventCounts();
     displayEventTimer();
+}
+
+void RemoteSourceGUI::applyInterpolation()
+{
+    uint32_t maxHash = 1;
+
+    for (uint32_t i = 0; i < m_settings.m_log2Interp; i++) {
+        maxHash *= 3;
+    }
+
+    ui->position->setMaximum(maxHash-1);
+    ui->position->setValue(m_settings.m_filterChainHash);
+    m_settings.m_filterChainHash = ui->position->value();
+    applyPosition();
+}
+
+void RemoteSourceGUI::applyPosition()
+{
+    ui->filterChainIndex->setText(tr("%1").arg(m_settings.m_filterChainHash));
+    QString s;
+    m_shiftFrequencyFactor = HBFilterChainConverter::convertToString(m_settings.m_log2Interp, m_settings.m_filterChainHash, s);
+    ui->filterChainText->setText(s);
+
+    updateAbsoluteCenterFrequency();
+    displayRateAndShift();
+    applySettings(QStringList());
 }
 
 void RemoteSourceGUI::displayEventCounts()
@@ -401,4 +488,20 @@ void RemoteSourceGUI::tick()
 
 void RemoteSourceGUI::channelMarkerChangedByCursor()
 {
+}
+
+void RemoteSourceGUI::makeUIConnections()
+{
+    QObject::connect(ui->interpolationFactor, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &RemoteSourceGUI::on_interpolationFactor_currentIndexChanged);
+    QObject::connect(ui->position, &QSlider::valueChanged, this, &RemoteSourceGUI::on_position_valueChanged);
+    QObject::connect(ui->dataAddress, &QLineEdit::returnPressed, this, &RemoteSourceGUI::on_dataAddress_returnPressed);
+    QObject::connect(ui->dataPort, &QLineEdit::returnPressed, this, &RemoteSourceGUI::on_dataPort_returnPressed);
+    QObject::connect(ui->dataApplyButton, &QPushButton::clicked, this, &RemoteSourceGUI::on_dataApplyButton_clicked);
+    QObject::connect(ui->eventCountsReset, &QPushButton::clicked, this, &RemoteSourceGUI::on_eventCountsReset_clicked);
+}
+
+void RemoteSourceGUI::updateAbsoluteCenterFrequency()
+{
+    int shift = m_shiftFrequencyFactor * m_basebandSampleRate;
+    setStatusFrequency(m_deviceCenterFrequency + shift);
 }

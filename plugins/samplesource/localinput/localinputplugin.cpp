@@ -1,5 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2019 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2015-2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
+// Copyright (C) 2019 Davide Gerhard <rainbow@irh.it>                            //
+// Copyright (C) 2020 Kacper Michajłow <kasper93@gmail.com>                      //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -18,7 +20,6 @@
 #include <QtPlugin>
 
 #include "plugin/pluginapi.h"
-#include "util/simpleserializer.h"
 
 #ifdef SERVER_MODE
 #include "localinput.h"
@@ -26,18 +27,20 @@
 #include "localinputgui.h"
 #endif
 #include "localinputplugin.h"
+#include "localinputwebapiadapter.h"
 
 const PluginDescriptor LocalInputPlugin::m_pluginDescriptor = {
-	QString("Local device input"),
-	QString("4.6.0"),
-	QString("(c) Edouard Griffiths, F4EXB"),
-	QString("https://github.com/f4exb/sdrangel"),
+    QStringLiteral("LocalInput"),
+	QStringLiteral("Local device input"),
+    QStringLiteral("7.25.0"),
+	QStringLiteral("(c) Edouard Griffiths, F4EXB"),
+	QStringLiteral("https://github.com/f4exb/sdrangel"),
 	true,
-	QString("https://github.com/f4exb/sdrangel")
+	QStringLiteral("https://github.com/f4exb/sdrangel")
 };
 
-const QString LocalInputPlugin::m_hardwareID = "LocalInput";
-const QString LocalInputPlugin::m_deviceTypeID = LOCALINPUT_DEVICE_TYPE_ID;
+static constexpr const char* const m_hardwareID = "LocalInput";
+static constexpr const char* const m_deviceTypeID = LOCALINPUT_DEVICE_TYPE_ID;
 
 LocalInputPlugin::LocalInputPlugin(QObject* parent) :
 	QObject(parent)
@@ -54,34 +57,62 @@ void LocalInputPlugin::initPlugin(PluginAPI* pluginAPI)
 	pluginAPI->registerSampleSource(m_deviceTypeID, this);
 }
 
-PluginInterface::SamplingDevices LocalInputPlugin::enumSampleSources()
+void LocalInputPlugin::enumOriginDevices(QStringList& listedHwIds, OriginDevices& originDevices)
+{
+    if (listedHwIds.contains(m_hardwareID)) { // check if it was done
+        return;
+    }
+
+    originDevices.append(OriginDevice(
+        "LocalInput",
+        m_hardwareID,
+        QString(),
+        0,
+        1, // nb Rx
+        0  // nb Tx
+    ));
+
+    listedHwIds.append(m_hardwareID);
+}
+
+PluginInterface::SamplingDevices LocalInputPlugin::enumSampleSources(const OriginDevices& originDevices)
 {
 	SamplingDevices result;
 
-    result.append(SamplingDevice(
-            "LocalInput",
-            m_hardwareID,
-            m_deviceTypeID,
-            QString::null,
-            0,
-            PluginInterface::SamplingDevice::BuiltInDevice,
-            PluginInterface::SamplingDevice::StreamSingleRx,
-            1,
-            0));
+	for (OriginDevices::const_iterator it = originDevices.begin(); it != originDevices.end(); ++it)
+    {
+        if (it->hardwareId == m_hardwareID)
+        {
+            result.append(SamplingDevice(
+                it->displayableName,
+                m_hardwareID,
+                m_deviceTypeID,
+                it->serial,
+                it->sequence,
+                PluginInterface::SamplingDevice::BuiltInDevice,
+                PluginInterface::SamplingDevice::StreamSingleRx,
+                1,
+                0
+            ));
+        }
+    }
 
 	return result;
 }
 
 #ifdef SERVER_MODE
-PluginInstanceGUI* LocalInputPlugin::createSampleSourcePluginInstanceGUI(
-        const QString& sourceId __attribute((unused)),
-        QWidget **widget __attribute((unused)),
-        DeviceUISet *deviceUISet __attribute((unused)))
+DeviceGUI* LocalInputPlugin::createSampleSourcePluginInstanceGUI(
+        const QString& sourceId,
+        QWidget **widget,
+        DeviceUISet *deviceUISet)
 {
+    (void) sourceId;
+    (void) widget;
+    (void) deviceUISet;
     return 0;
 }
 #else
-PluginInstanceGUI* LocalInputPlugin::createSampleSourcePluginInstanceGUI(
+DeviceGUI* LocalInputPlugin::createSampleSourcePluginInstanceGUI(
         const QString& sourceId,
         QWidget **widget,
         DeviceUISet *deviceUISet)
@@ -99,7 +130,7 @@ PluginInstanceGUI* LocalInputPlugin::createSampleSourcePluginInstanceGUI(
 }
 #endif
 
-DeviceSampleSource *LocalInputPlugin::createSampleSourcePluginInstanceInput(const QString& sourceId, DeviceAPI *deviceAPI)
+DeviceSampleSource *LocalInputPlugin::createSampleSourcePluginInstance(const QString& sourceId, DeviceAPI *deviceAPI)
 {
     if (sourceId == m_deviceTypeID)
     {
@@ -110,4 +141,9 @@ DeviceSampleSource *LocalInputPlugin::createSampleSourcePluginInstanceInput(cons
     {
         return 0;
     }
+}
+
+DeviceWebAPIAdapter *LocalInputPlugin::createDeviceWebAPIAdapter() const
+{
+    return new LocalInputWebAPIAdapter();
 }

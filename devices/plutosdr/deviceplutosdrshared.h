@@ -1,5 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2017 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2019 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -19,6 +21,8 @@
 #define DEVICES_PLUTOSDR_DEVICEPLUTOSDRSHARED_H_
 
 #include <stdint.h>
+
+#include <QRecursiveMutex>
 
 #include "util/message.h"
 #include "export.h"
@@ -90,8 +94,16 @@ public:
     ThreadInterface      *m_thread;          //!< holds the thread address if started else 0
     bool                 m_threadWasRunning; //!< flag to know if thread needs to be resumed after suspend
 
-    static const float  m_sampleFifoLengthInSeconds;
-    static const int    m_sampleFifoMinSize;
+    static const unsigned int m_sampleFifoMinRate;
+
+    /**
+     * Serializes every access to m_thread across all PlutoSDR device sets.
+     * A buddy suspends and resumes this device's sample thread through m_thread, from another
+     * thread and without holding this device's own mutex. Without a common lock it can restart
+     * a thread that stop() is in the middle of tearing down (QThread: Destroyed while thread is
+     * still running) or call through a pointer that has just been deleted.
+     */
+    static QRecursiveMutex m_threadsMutex;
 
     DevicePlutoSDRShared() :
         m_deviceParams(0),

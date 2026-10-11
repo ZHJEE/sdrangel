@@ -1,87 +1,82 @@
 project(limesdrinput)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(limesdrinput_SOURCES
-	limesdrinputgui.cpp
 	limesdrinput.cpp
 	limesdrinputplugin.cpp
-	limesdrinputsettings.cpp
+    limesdrinputsettings.cpp
+    limesdrinputwebapiadapter.cpp
 	limesdrinputthread.cpp
 )
 
 set(limesdrinput_HEADERS
-	limesdrinputgui.h
 	limesdrinput.h
 	limesdrinputplugin.h
-	limesdrinputsettings.h
+    limesdrinputsettings.h
+    limesdrinputwebapiadapter.h
 	limesdrinputthread.h
 )
 
-set(limesdrinput_FORMS
-	limesdrinputgui.ui
-)
-
-if (BUILD_DEBIAN)
 include_directories(
-        .
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client    
-    ${CMAKE_SOURCE_DIR}/devices    
-    ${LIBLIMESUITESRC}/src
-    ${LIBLIMESUITESRC}/src/ADF4002
-    ${LIBLIMESUITESRC}/src/ConnectionRegistry
-    ${LIBLIMESUITESRC}/src/FPGA_common
-    ${LIBLIMESUITESRC}/src/GFIR
-    ${LIBLIMESUITESRC}/src/lms7002m
-    ${LIBLIMESUITESRC}/src/lms7002m_mcu
-    ${LIBLIMESUITESRC}/src/Si5351C
-    ${LIBLIMESUITESRC}/src/protocols
-)
-else (BUILD_DEBIAN)
-include_directories(
-	.
-	${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client	
+        ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
 	${CMAKE_SOURCE_DIR}/devices
 	${LIMESUITE_INCLUDE_DIR}
 )
-endif (BUILD_DEBIAN)
 
-#include(${QT_USE_FILE})
-add_definitions(${QT_DEFINITIONS})
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
+if(NOT SERVER_MODE)
+    set(limesdrinput_SOURCES
+        ${limesdrinput_SOURCES}
+        limesdrinputgui.cpp
 
-#qt4_wrap_cpp(limesdrinput_HEADERS_MOC ${limesdrinput_HEADERS})
-qt5_wrap_ui(limesdrinput_FORMS_HEADERS ${limesdrinput_FORMS})
+        limesdrinputgui.ui
+    )
+    set(limesdrinput_HEADERS
+        ${limesdrinput_HEADERS}
+        limesdrinputgui.h
+    )
 
-add_library(inputlimesdr SHARED
-	${limesdrinput_SOURCES}
-	${limesdrinput_HEADERS_MOC}
-	${limesdrinput_FORMS_HEADERS}
-)
+    set(TARGET_NAME ${PLUGINS_PREFIX}inputlimesdr)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}inputlimesdrsrv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
 
-if (BUILD_DEBIAN)
-target_link_libraries(inputlimesdr
-    ${QT_LIBRARIES}
-    limesuite
-    sdrbase
-    sdrgui
-    swagger
-    limesdrdevice
-)
-else (BUILD_DEBIAN)
-target_link_libraries(inputlimesdr
-	${QT_LIBRARIES}
-	${LIMESUITE_LIBRARY}
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${limesdrinput_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME LimeSDRInputPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${limesdrinput_SOURCES})
+endif()
+
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+if(LIMESUITE_EXTERNAL)
+    add_dependencies(${TARGET_NAME} limesuite)
+endif()
+
+target_link_libraries(${TARGET_NAME} PRIVATE
+        Qt::Core
+        ${TARGET_LIB}
 	sdrbase
-	sdrgui
-	swagger
-	limesdrdevice
+	${TARGET_LIB_GUI}
+        swagger
+        ${LIMESUITE_LIBRARY}
+        limesdrdevice
 )
-endif (BUILD_DEBIAN)
+if(ANDROID)
+    target_link_libraries(${TARGET_NAME} PRIVATE ${LIBUSB_LIBRARIES} log)
+endif()
 
-target_link_libraries(inputlimesdr Qt5::Core Qt5::Widgets)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-install(TARGETS inputlimesdr DESTINATION lib/plugins/samplesource)
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

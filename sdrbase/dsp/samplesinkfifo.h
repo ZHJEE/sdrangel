@@ -1,6 +1,8 @@
 ///////////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
 // written by Christian Daniel                                                   //
+// Copyright (C) 2015-2016, 2018-2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com> //
+// Copyright (C) 2022 Jiří Pinkava <jiri.pinkava@rossum.ai>                      //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -20,49 +22,62 @@
 #define INCLUDE_SAMPLEFIFO_H
 
 #include <QObject>
-#include <QMutex>
-#include <QTime>
+#include <QRecursiveMutex>
+#include <QElapsedTimer>
 #include "dsp/dsptypes.h"
 #include "export.h"
 
 class SDRBASE_API SampleSinkFifo : public QObject {
-	Q_OBJECT
+    Q_OBJECT
 
 private:
-	QMutex m_mutex;
-	QTime m_msgRateTimer;
-	int m_suppressed;
+    QElapsedTimer m_msgRateTimer;
+    int m_suppressed;
+    qint64 m_suppressedSamples;
+    SampleVector m_data;
+    int m_total;
+    unsigned int m_writtenSignalCount;
+    unsigned int m_writtenSignalRateDivider;
+    QRecursiveMutex m_mutex;
 
-	SampleVector m_data;
+    unsigned int m_size;
+    unsigned int m_fill;
+    unsigned int m_head;
+    unsigned int m_tail;
+    QString m_label;
 
-	uint m_size;
-	uint m_fill;
-	uint m_head;
-	uint m_tail;
-
-	void create(uint s);
+    void create(unsigned int s);
+    void logOverflow(unsigned int total, unsigned int count);
 
 public:
-	SampleSinkFifo(QObject* parent = NULL);
-	SampleSinkFifo(int size, QObject* parent = NULL);
-	~SampleSinkFifo();
+    SampleSinkFifo(QObject* parent = nullptr);
+    SampleSinkFifo(int size, QObject* parent = nullptr);
+    SampleSinkFifo(const SampleSinkFifo& other);
+    ~SampleSinkFifo();
 
-	bool setSize(int size);
-	inline uint size() const { return m_size; }
-	inline uint fill() { QMutexLocker mutexLocker(&m_mutex); uint fill = m_fill; return fill; }
+    bool setSize(int size);
+    void reset();
+    void setWrittenSignalRateDivider(unsigned int divider);
+    inline unsigned int size() { QMutexLocker mutexLocker(&m_mutex); unsigned int size = m_size; return size; }
+    inline unsigned int fill() { QMutexLocker mutexLocker(&m_mutex); unsigned int fill = m_fill; return fill; }
 
-	uint write(const quint8* data, uint count);
-	uint write(SampleVector::const_iterator begin, SampleVector::const_iterator end);
+    unsigned int write(const quint8* data, unsigned int count);
+    unsigned int write(SampleVector::const_iterator begin, SampleVector::const_iterator end);
 
-	uint read(SampleVector::iterator begin, SampleVector::iterator end);
+    unsigned int read(SampleVector::iterator begin, SampleVector::iterator end);
 
-	uint readBegin(uint count,
-		SampleVector::iterator* part1Begin, SampleVector::iterator* part1End,
-		SampleVector::iterator* part2Begin, SampleVector::iterator* part2End);
-	uint readCommit(uint count);
+    unsigned int readBegin(unsigned int count,
+        SampleVector::iterator* part1Begin, SampleVector::iterator* part1End,
+        SampleVector::iterator* part2Begin, SampleVector::iterator* part2End);
+    unsigned int readCommit(unsigned int count);
+    void setLabel(const QString& label) { m_label = label; }
+    static unsigned int getSizePolicy(unsigned int sampleRate);
 
 signals:
-	void dataReady();
+    void dataReady();
+    void written(int nsamples, qint64 timestamp);
+    void overflow(int nsamples);
+    void underflow(int nsamples);
 };
 
 #endif // INCLUDE_SAMPLEFIFO_H

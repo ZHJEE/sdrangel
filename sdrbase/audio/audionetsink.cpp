@@ -1,6 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018 F4EXB                                                      //
-// written by Edouard Griffiths                                                  //
+// Copyright (C) 2018-2019 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -40,6 +39,8 @@ AudioNetSink::AudioNetSink(QObject *parent) :
     m_port(9998)
 {
     std::fill(m_data, m_data+m_dataBlockSize, 0);
+    std::fill(m_opusIn, m_opusIn+m_opusBlockSize, 0);
+    m_codecRatio = (m_sampleRate / m_decimation) / (AudioOpus::m_bitrate / 8); // compressor ratio
     m_udpSocket = new QUdpSocket(parent);
 }
 
@@ -57,6 +58,8 @@ AudioNetSink::AudioNetSink(QObject *parent, int sampleRate, bool stereo) :
     m_port(9998)
 {
     std::fill(m_data, m_data+m_dataBlockSize, 0);
+    std::fill(m_opusIn, m_opusIn+m_opusBlockSize, 0);
+    m_codecRatio = (m_sampleRate / m_decimation) / (AudioOpus::m_bitrate / 8); // compressor ratio
     m_udpSocket = new QUdpSocket(parent);
     m_rtpBufferAudio = new RTPSink(m_udpSocket, sampleRate, stereo);
 }
@@ -191,16 +194,19 @@ void AudioNetSink::setDecimationFilters()
     {
     case CodecPCMA:
     case CodecPCMU:
-        m_audioFilter.setDecimFilters(m_sampleRate, decimatedSampleRate, 3300.0, 300.0);
+        m_audioFilterR.setDecimFilters(m_sampleRate, decimatedSampleRate, 3300.0, 300.0);
+        m_audioFilterL.setDecimFilters(m_sampleRate, decimatedSampleRate, 3300.0, 300.0);
         break;
     case CodecG722:
-        m_audioFilter.setDecimFilters(m_sampleRate, decimatedSampleRate, 7000.0, 50.0);
+        m_audioFilterR.setDecimFilters(m_sampleRate, decimatedSampleRate, 7000.0, 50.0);
+        m_audioFilterL.setDecimFilters(m_sampleRate, decimatedSampleRate, 7000.0, 50.0);
         break;
     case CodecOpus:
     case CodecL8:
     case CodecL16:
     default:
-        m_audioFilter.setDecimFilters(m_sampleRate, decimatedSampleRate, 0.45*decimatedSampleRate, 50.0);
+        m_audioFilterR.setDecimFilters(m_sampleRate, decimatedSampleRate, 0.45*decimatedSampleRate, 50.0);
+        m_audioFilterL.setDecimFilters(m_sampleRate, decimatedSampleRate, 0.45*decimatedSampleRate, 50.0);
         break;
     }
 }
@@ -211,7 +217,7 @@ void AudioNetSink::write(qint16 isample)
 
     if (m_decimation > 1)
     {
-        float lpSample = m_audioFilter.run(sample / 32768.0f);
+        float lpSample = m_audioFilterR.run(sample / 32768.0f);
 
         if (m_decimationCount >= m_decimation - 1)
         {
@@ -364,8 +370,8 @@ void AudioNetSink::write(qint16 ilSample, qint16 irSample)
 
     if (m_decimation > 1)
     {
-        float lpLSample = m_audioFilter.runLP(lSample / 32768.0f);
-        float lpRSample = m_audioFilter.runLP(rSample / 32768.0f);
+        float lpLSample = m_audioFilterL.runLP(lSample / 32768.0f);
+        float lpRSample = m_audioFilterR.runLP(rSample / 32768.0f);
 
         if (m_decimationCount >= m_decimation - 1)
         {

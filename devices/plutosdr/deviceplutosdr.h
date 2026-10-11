@@ -1,5 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2017 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2019 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -36,6 +38,9 @@ public:
     const std::string* getSerialAt(unsigned int index) const { return m_scan.getSerialAt(index); }
     DevicePlutoSDRBox* getDeviceFromURI(const std::string& uri);
     DevicePlutoSDRBox* getDeviceFromSerial(const std::string& serial);
+    void enumOriginDevices(const QString& hardwareId, PluginInterface::OriginDevices& originDevices) {
+        m_scan.enumOriginDevices(hardwareId, originDevices);
+    }
 
     static const uint64_t rxLOLowLimitFreq;  //!< Rx LO hard coded lower frequency limit (Hz)
     static const uint64_t rxLOHighLimitFreq; //!< Rx LO hard coded lower frequency limit (Hz)
@@ -49,6 +54,8 @@ public:
     static const uint32_t bbLPTxHighLimitFreq;  //!< Analog base band Tx high pass filter lower frequency limit (Hz)
     static const float firBWLowLimitFactor;  //!< Factor by which the FIR working sample rate is multiplied to yield bandwidth lower limit
     static const float firBWHighLimitFactor; //!< Factor by which the FIR working sample rate is multiplied to yield bandwidth higher limit
+    static const int32_t rxMinGain;          //!< Min gain (Steps or dB)
+    static const int32_t rxMaxGain;          //!< Max gain (Steps or dB)
 protected:
     DevicePlutoSDR();
     ~DevicePlutoSDR();

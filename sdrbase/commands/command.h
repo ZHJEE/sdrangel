@@ -1,5 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2016-2019, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>    //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -58,12 +60,14 @@ public:
     bool getRelease() const { return m_release; }
     QString getKeyLabel() const;
 
-    void run(const QString& apiAddress, int apiPort, int deviceSetIndex);
+    void run(const QString& apiAddress, int apiPort, int deviceSetIndex = 0);
     void kill();
+#if QT_CONFIG(process)
     QProcess::ProcessState getLastProcessState() const;
     bool getLastProcessError(QProcess::ProcessError& error) const;
     bool getLastProcessExit(int& exitCode, QProcess::ExitStatus& exitStatus) const;
     const QString& getLastProcessLog() const;
+#endif
     uint64_t  getLastProcessStartTimestampms() const { return m_currentProcessStartTimeStampms; }
     uint64_t  getLastProcessFinishTimestampms() const { return m_currentProcessFinishTimeStampms; }
     const QString& getLastProcessCommandLine() const { return m_currentProcessCommandLine; }
@@ -100,6 +104,7 @@ private:
     Qt::KeyboardModifiers m_keyModifiers;
     bool m_associateKey;
     bool m_release;
+#if QT_CONFIG(process)
     QProcess *m_currentProcess;
     QProcess::ProcessState m_currentProcessState;
     bool m_isInError;
@@ -107,6 +112,7 @@ private:
     bool m_hasExited;
     int m_currentProcessExitCode;
     QProcess::ExitStatus m_currentProcessExitStatus;
+#endif
     QString m_log;
     uint64_t  m_currentProcessStartTimeStampms;
     uint64_t  m_currentProcessFinishTimeStampms;
@@ -114,9 +120,11 @@ private:
     qint64 m_currentProcessPid;
 
 private slots:
+#if QT_CONFIG(process)
     void processStateChanged(QProcess::ProcessState newState);
     void processError(QProcess::ProcessError error);
     void processFinished(int exitCode, QProcess::ExitStatus exitStatus);
+#endif
 };
 
 Q_DECLARE_METATYPE(const Command*);

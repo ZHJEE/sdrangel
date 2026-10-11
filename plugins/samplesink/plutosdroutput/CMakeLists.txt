@@ -1,79 +1,79 @@
 project(plutosdroutput)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(plutosdroutput_SOURCES
-    plutosdroutputgui.cpp
     plutosdroutput.cpp
     plutosdroutputplugin.cpp
     plutosdroutputsettings.cpp
+    plutosdroutputwebapiadapter.cpp
     plutosdroutputthread.cpp
 )
 
 set(plutosdroutput_HEADERS
-    plutosdroutputgui.h
     plutosdroutput.h
     plutosdroutputplugin.h
     plutosdroutputsettings.h
+    plutosdroutputwebapiadapter.h
     plutosdroutputthread.h
 )
 
-set(plutosdroutput_FORMS
-    plutosdroutputgui.ui
-)
-
-if (BUILD_DEBIAN)
 include_directories(
-    .
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client    
-    ${CMAKE_SOURCE_DIR}/devices    
-    ${LIBIIOSRC}
-)
-else (BUILD_DEBIAN)
-include_directories(
-        .
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client    
-    ${CMAKE_SOURCE_DIR}/devices    
+    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
+    ${CMAKE_SOURCE_DIR}/devices
     ${LIBIIO_INCLUDE_DIR}
 )
-endif (BUILD_DEBIAN)
 
-#include(${QT_USE_FILE})
-#add_definitions(${QT_DEFINITIONS})
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
+if(NOT SERVER_MODE)
+    set(plutosdroutput_SOURCES
+        ${plutosdroutput_SOURCES}
+        plutosdroutputgui.cpp
 
-#qt4_wrap_cpp(plutosdroutput_HEADERS_MOC ${plutosdroutput_HEADERS})
-qt5_wrap_ui(plutosdroutput_FORMS_HEADERS ${plutosdroutput_FORMS})
+        plutosdroutputgui.ui
+    )
+    set(plutosdroutput_HEADERS
+        ${plutosdroutput_HEADERS}
+        plutosdroutputgui.h
+    )
 
-add_library(outputplutosdr SHARED
-    ${plutosdroutput_SOURCES}
-    ${plutosdroutput_HEADERS_MOC}
-    ${plutosdroutput_FORMS_HEADERS}
+    set(TARGET_NAME ${PLUGINS_PREFIX}outputplutosdr)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}outputplutosdrsrv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
+
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${plutosdroutput_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME PlutoSDROutputPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${plutosdroutput_SOURCES})
+endif()
+
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+if(LIBIIO_EXTERNAL)
+    add_dependencies(${TARGET_NAME} libiio)
+endif()
+
+target_link_libraries(${TARGET_NAME} PRIVATE
+        Qt::Core
+        ${TARGET_LIB}
+	sdrbase
+	${TARGET_LIB_GUI}
+        swagger
+        ${LIBIIO_LIBRARIES}
+        plutosdrdevice
 )
 
-if (BUILD_DEBIAN)
-target_link_libraries(outputplutosdr
-    ${QT_LIBRARIES}
-    iio
-    sdrbase
-    sdrgui
-    swagger
-    plutosdrdevice
-)
-else (BUILD_DEBIAN)
-target_link_libraries(outputplutosdr
-    ${QT_LIBRARIES}
-    ${LIBIIO_LIBRARIES}
-    sdrbase
-    sdrgui
-    swagger
-    plutosdrdevice
-)
-endif (BUILD_DEBIAN)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-qt5_use_modules(outputplutosdr Core Widgets)
-
-install(TARGETS outputplutosdr DESTINATION lib/plugins/samplesink)
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

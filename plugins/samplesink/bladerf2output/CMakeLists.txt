@@ -1,80 +1,79 @@
 project(bladerf2output)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(bladerf2output_SOURCES
-	bladerf2outputgui.cpp
 	bladerf2output.cpp
 	bladerf2outputplugin.cpp
-	bladerf2outputsettings.cpp
+    bladerf2outputsettings.cpp
+    bladerf2outputwebapiadapter.cpp
 	bladerf2outputthread.cpp
 )
 
 set(bladerf2output_HEADERS
-	bladerf2outputgui.h
 	bladerf2output.h
 	bladerf2outputplugin.h
-	bladerf2outputsettings.h
+    bladerf2outputsettings.h
+    bladerf2outputwebapiadapter.h
 	bladerf2outputthread.h
 )
 
-set(bladerf2output_FORMS
-	bladerf2outputgui.ui
-)
-
-if (BUILD_DEBIAN)
 include_directories(
-    .
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client    
-    ${CMAKE_SOURCE_DIR}/devices
-    ${LIBBLADERFLIBSRC}/include
-    ${LIBBLADERFLIBSRC}/src
-)
-else (BUILD_DEBIAN)
-include_directories(
-	.
-	${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client	
+        ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
 	${CMAKE_SOURCE_DIR}/devices
-	${LIBBLADERF_INCLUDE_DIR}
-)
-endif (BUILD_DEBIAN)
-
-#include(${QT_USE_FILE})
-add_definitions(${QT_DEFINITIONS})
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
-
-#qt4_wrap_cpp(bladerf2output_HEADERS_MOC ${bladerf2output_HEADERS})
-qt5_wrap_ui(bladerf2output_FORMS_HEADERS ${bladerf2output_FORMS})
-
-add_library(outputbladerf2 SHARED
-	${bladerf2output_SOURCES}
-	${bladerf2output_HEADERS_MOC}
-	${bladerf2output_FORMS_HEADERS}
+	${LIBBLADERF_INCLUDE_DIRS}
 )
 
-if (BUILD_DEBIAN)
-target_link_libraries(outputbladerf2
-    ${QT_LIBRARIES}
-    bladerf
-    sdrbase
-    sdrgui
-    swagger
-    bladerf2device
-)
-else (BUILD_DEBIAN)
-target_link_libraries(outputbladerf2
-	${QT_LIBRARIES}
-	${LIBBLADERF_LIBRARIES}
+if(NOT SERVER_MODE)
+    set(bladerf2output_SOURCES
+        ${bladerf2output_SOURCES}
+        bladerf2outputgui.cpp
+
+        bladerf2outputgui.ui
+    )
+    set(bladerf2output_HEADERS
+        ${bladerf2output_HEADERS}
+        bladerf2outputgui.h
+    )
+
+    set(TARGET_NAME ${PLUGINS_PREFIX}outputbladerf2)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}outputbladerf2srv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
+
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${bladerf2output_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME BladeRF2OutputPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${bladerf2output_SOURCES})
+endif()
+
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+if(LIBBLADERF_EXTERNAL)
+    add_dependencies(${TARGET_NAME} bladerf)
+endif()
+
+target_link_libraries(${TARGET_NAME} PRIVATE
+        Qt::Core
+        ${TARGET_LIB}
 	sdrbase
-	sdrgui
-	swagger
-	bladerf2device
+	${TARGET_LIB_GUI}
+        swagger
+        ${LIBBLADERF_LIBRARIES}
+        bladerf2device
 )
-endif (BUILD_DEBIAN)
 
-target_link_libraries(outputbladerf2 Qt5::Core Qt5::Widgets)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-install(TARGETS outputbladerf2 DESTINATION lib/plugins/samplesink)
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

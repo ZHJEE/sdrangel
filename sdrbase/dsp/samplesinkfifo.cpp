@@ -1,6 +1,8 @@
 ///////////////////////////////////////////////////////////////////////////////////
- // Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
 // written by Christian Daniel                                                   //
+// Copyright (C) 2016, 2018-2019, 2021-2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com> //
+// Copyright (C) 2022 Jiří Pinkava <jiri.pinkava@rossum.ai>                      //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -16,217 +18,372 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.          //
 ///////////////////////////////////////////////////////////////////////////////////
 
+#include "maincore.h"
 #include "samplesinkfifo.h"
 
-#define MIN(x, y) (((x) < (y)) ? (x) : (y))
+//#define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
-void SampleSinkFifo::create(uint s)
+void SampleSinkFifo::create(unsigned int s)
 {
-	m_size = 0;
-	m_fill = 0;
-	m_head = 0;
-	m_tail = 0;
+    m_fill = 0;
+    m_head = 0;
+    m_tail = 0;
 
-	m_data.resize(s);
-	m_size = m_data.size();
+    m_data.resize(s);
+    m_size = m_data.size();
+}
 
-	if(m_size != s)
-		qCritical("SampleSinkFifo: out of memory");
+void SampleSinkFifo::reset()
+{
+    QMutexLocker mutexLocker(&m_mutex);
+    m_suppressed = -1;
+    m_suppressedSamples = 0;
+    m_fill = 0;
+    m_head = 0;
+    m_tail = 0;
 }
 
 SampleSinkFifo::SampleSinkFifo(QObject* parent) :
-	QObject(parent),
-	m_data()
+    QObject(parent),
+    m_data(),
+    m_total(0),
+    m_writtenSignalCount(0),
+    m_writtenSignalRateDivider(1)
 {
-	m_suppressed = -1;
-	m_size = 0;
-	m_fill = 0;
-	m_head = 0;
-	m_tail = 0;
+    m_suppressed = -1;
+    m_suppressedSamples = 0;
+    m_size = 0;
+    m_fill = 0;
+    m_head = 0;
+    m_tail = 0;
 }
 
 SampleSinkFifo::SampleSinkFifo(int size, QObject* parent) :
-	QObject(parent),
-	m_data()
+    QObject(parent),
+    m_data(),
+    m_total(0),
+    m_writtenSignalCount(0),
+    m_writtenSignalRateDivider(1)
 {
-	m_suppressed = -1;
+    m_suppressed = -1;
+    m_suppressedSamples = 0;
+    create(size);
+}
 
-	create(size);
+SampleSinkFifo::SampleSinkFifo(const SampleSinkFifo& other) :
+    QObject(other.parent()),
+    m_data(other.m_data),
+    m_total(0),
+    m_writtenSignalCount(0),
+    m_writtenSignalRateDivider(1)
+{
+    m_suppressed = -1;
+    m_suppressedSamples = 0;
+    m_size = m_data.size();
+    m_fill = 0;
+    m_head = 0;
+    m_tail = 0;
 }
 
 SampleSinkFifo::~SampleSinkFifo()
 {
-	QMutexLocker mutexLocker(&m_mutex);
-
-	m_size = 0;
+    QMutexLocker mutexLocker(&m_mutex);
+    m_size = 0;
 }
 
 bool SampleSinkFifo::setSize(int size)
 {
-	create(size);
-
-	return m_data.size() == (uint)size;
+    QMutexLocker mutexLocker(&m_mutex);
+    create(size);
+    return m_data.size() == (unsigned int)size;
 }
 
-uint SampleSinkFifo::write(const quint8* data, uint count)
+void SampleSinkFifo::setWrittenSignalRateDivider(unsigned int divider)
 {
-	QMutexLocker mutexLocker(&m_mutex);
-	uint total;
-	uint remaining;
-	uint len;
-	const Sample* begin = (const Sample*)data;
-	count /= sizeof(Sample);
-
-	total = MIN(count, m_size - m_fill);
-	if(total < count) {
-		if(m_suppressed < 0) {
-			m_suppressed = 0;
-			m_msgRateTimer.start();
-			qCritical("SampleSinkFifo: overflow - dropping %u samples", count - total);
-		} else {
-			if(m_msgRateTimer.elapsed() > 2500) {
-				qCritical("SampleSinkFifo: %u messages dropped", m_suppressed);
-				qCritical("SampleSinkFifo: overflow - dropping %u samples", count - total);
-				m_suppressed = -1;
-			} else {
-				m_suppressed++;
-			}
-		}
-	}
-
-	remaining = total;
-	while(remaining > 0) {
-		len = MIN(remaining, m_size - m_tail);
-		std::copy(begin, begin + len, m_data.begin() + m_tail);
-		m_tail += len;
-		m_tail %= m_size;
-		m_fill += len;
-		begin += len;
-		remaining -= len;
-	}
-
-	if(m_fill > 0)
-		emit dataReady();
-
-	return total;
+    QMutexLocker mutexLocker(&m_mutex);
+    m_writtenSignalRateDivider = divider;
 }
 
-uint SampleSinkFifo::write(SampleVector::const_iterator begin, SampleVector::const_iterator end)
+// Rate-limit overflow messages while continuing to report every overflow.
+// After an overflow, messages are suppressed for 2.5 seconds and the
+// accumulated loss is reported as a single message. A 2.5 second recovery
+// interval without further overflow is then required before immediate
+// reporting resumes.
+void SampleSinkFifo::logOverflow(unsigned int total, unsigned int count)
 {
-	QMutexLocker mutexLocker(&m_mutex);
-	uint count = end - begin;
-	uint total;
-	uint remaining;
-	uint len;
+    const bool hasOverflow = total < count;
+    const unsigned int dropped = count - total;
 
-	total = MIN(count, m_size - m_fill);
-	if(total < count) {
-		if(m_suppressed < 0) {
-			m_suppressed = 0;
-			m_msgRateTimer.start();
-			qCritical("SampleSinkFifo: overflow - dropping %u samples", count - total);
-		} else {
-			if(m_msgRateTimer.elapsed() > 2500) {
-				qCritical("SampleSinkFifo: %u messages dropped", m_suppressed);
-				qCritical("SampleSinkFifo: overflow - dropping %u samples", count - total);
-				m_suppressed = -1;
-			} else {
-				m_suppressed++;
-			}
-		}
-	}
+    if (hasOverflow)
+    {
+        emit overflow(dropped);
+    }
 
-	remaining = total;
-	while(remaining > 0) {
-		len = MIN(remaining, m_size - m_tail);
-		std::copy(begin, begin + len, m_data.begin() + m_tail);
-		m_tail += len;
-		m_tail %= m_size;
-		m_fill += len;
-		begin += len;
-		remaining -= len;
-	}
+    // m_suppressed: -1 = immediate reporting, 0+ = suppressed message count,
+    //               -2 = recovery monitoring
 
-	if(m_fill > 0)
-		emit dataReady();
+    if (m_suppressed == -1)
+    {
+        if (hasOverflow)
+        {
+            qCritical("SampleSinkFifo: (%s) overflow - dropped %u samples",
+               qPrintable(m_label), dropped);
 
-	return total;
+            // The current overflow was already reported, so don't count it again.
+            m_suppressed = 0;
+            m_suppressedSamples = 0;
+            m_msgRateTimer.start();
+        }
+    }
+    else if (m_suppressed == -2)
+    {
+        if (hasOverflow)
+        {
+            // Resume accumulation without restarting the recovery timer.
+            m_suppressed = 1;
+            m_suppressedSamples += dropped;
+        }
+        else if (m_msgRateTimer.elapsed() > 2500)
+        {
+            // No overflow for the recovery interval: resume immediate reporting.
+            m_suppressed = -1;
+        }
+    }
+    else // m_suppressed >= 0
+    {
+        if (m_msgRateTimer.elapsed() > 2500)
+        {
+            if (m_suppressed)
+            {
+                qCritical("SampleSinkFifo: (%s) overflow - dropped %lld samples (%u event%s)",
+                    qPrintable(m_label), m_suppressedSamples, m_suppressed, m_suppressed > 1 ? "s" : "");
+            }
+            m_suppressed = -2;
+            m_suppressedSamples = 0;
+            m_msgRateTimer.restart();
+        }
+        else if (hasOverflow)
+        {
+            ++m_suppressed;
+            m_suppressedSamples += dropped;
+        }
+    }
 }
 
-uint SampleSinkFifo::read(SampleVector::iterator begin, SampleVector::iterator end)
+unsigned int SampleSinkFifo::write(const quint8* data, unsigned int count)
 {
-	QMutexLocker mutexLocker(&m_mutex);
-	uint count = end - begin;
-	uint total;
-	uint remaining;
-	uint len;
+    QMutexLocker mutexLocker(&m_mutex);
 
-	total = MIN(count, m_fill);
-	if(total < count)
-		qCritical("SampleSinkFifo: underflow - missing %u samples", count - total);
+    if (m_size == 0) {
+        return 0;
+    }
 
-	remaining = total;
-	while(remaining > 0) {
-		len = MIN(remaining, m_size - m_head);
-		std::copy(m_data.begin() + m_head, m_data.begin() + m_head + len, begin);
-		m_head += len;
-		m_head %= m_size;
-		m_fill -= len;
-		begin += len;
-		remaining -= len;
-	}
+    unsigned int total;
+    unsigned int remaining;
+    unsigned int len;
+    const Sample* begin = (const Sample*)data;
+    count /= sizeof(Sample);
 
-	return total;
+    total = std::min(count, m_size - m_fill);
+
+    if (m_suppressed != -1 || total < count)
+    {
+        logOverflow(total, count);
+    }
+
+    remaining = total;
+
+    while (remaining > 0)
+    {
+        len = std::min(remaining, m_size - m_tail);
+        std::copy(begin, begin + len, m_data.begin() + m_tail);
+        m_tail += len;
+        m_tail %= m_size;
+        m_fill += len;
+        begin += len;
+        remaining -= len;
+    }
+
+    if (m_fill > 0) {
+        emit dataReady();
+    }
+
+    m_total += total;
+
+    if (++m_writtenSignalCount >= m_writtenSignalRateDivider)
+    {
+        emit written(m_total, MainCore::instance()->getElapsedNsecs());
+        m_total = 0;
+        m_writtenSignalCount = 0;
+    }
+
+    return total;
 }
 
-uint SampleSinkFifo::readBegin(uint count,
-	SampleVector::iterator* part1Begin, SampleVector::iterator* part1End,
-	SampleVector::iterator* part2Begin, SampleVector::iterator* part2End)
+unsigned int SampleSinkFifo::write(SampleVector::const_iterator begin, SampleVector::const_iterator end)
 {
-	QMutexLocker mutexLocker(&m_mutex);
-	uint total;
-	uint remaining;
-	uint len;
-	uint head = m_head;
+    QMutexLocker mutexLocker(&m_mutex);
 
-	total = MIN(count, m_fill);
-	if(total < count)
-		qCritical("SampleSinkFifo: underflow - missing %u samples", count - total);
+    if (m_size == 0) {
+        return 0;
+    }
 
-	remaining = total;
-	if(remaining > 0) {
-		len = MIN(remaining, m_size - head);
-		*part1Begin = m_data.begin() + head;
-		*part1End = m_data.begin() + head + len;
-		head += len;
-		head %= m_size;
-		remaining -= len;
-	} else {
-		*part1Begin = m_data.end();
-		*part1End = m_data.end();
-	}
-	if(remaining > 0) {
-		len = MIN(remaining, m_size - head);
-		*part2Begin = m_data.begin() + head;
-		*part2End = m_data.begin() + head + len;
-	} else {
-		*part2Begin = m_data.end();
-		*part2End = m_data.end();
-	}
+    unsigned int count = end - begin;
+    unsigned int total;
+    unsigned int remaining;
+    unsigned int len;
 
-	return total;
+    total = std::min(count, m_size - m_fill);
+
+    if (m_suppressed != -1 || total < count)
+    {
+        logOverflow(total, count);
+    }
+
+    remaining = total;
+
+    while (remaining > 0)
+    {
+        len = std::min(remaining, m_size - m_tail);
+        std::copy(begin, begin + len, m_data.begin() + m_tail);
+        m_tail += len;
+        m_tail %= m_size;
+        m_fill += len;
+        begin += len;
+        remaining -= len;
+    }
+
+    if (m_fill > 0) {
+        emit dataReady();
+    }
+
+    m_total += total;
+
+    if (++m_writtenSignalCount >= m_writtenSignalRateDivider)
+    {
+        emit written(m_total, MainCore::instance()->getElapsedNsecs());
+        m_total = 0;
+        m_writtenSignalCount = 0;
+    }
+
+    return total;
 }
 
-uint SampleSinkFifo::readCommit(uint count)
+unsigned int SampleSinkFifo::read(SampleVector::iterator begin, SampleVector::iterator end)
 {
-	QMutexLocker mutexLocker(&m_mutex);
+    QMutexLocker mutexLocker(&m_mutex);
 
-	if(count > m_fill) {
-		qCritical("SampleSinkFifo: cannot commit more than available samples");
-		count = m_fill;
-	}
-	m_head = (m_head + count) % m_size;
-	m_fill -= count;
+    if (m_size == 0) {
+        return 0;
+    }
 
-	return count;
+    unsigned int count = end - begin;
+    unsigned int total;
+    unsigned int remaining;
+    unsigned int len;
+
+    total = std::min(count, m_fill);
+
+    if (total < count)
+    {
+        qCritical("SampleSinkFifo::read: (%s) underflow - missing %u samples",
+            qPrintable(m_label), count - total);
+        emit underflow(count - total);
+    }
+
+    remaining = total;
+
+    while (remaining > 0)
+    {
+        len = std::min(remaining, m_size - m_head);
+        std::copy(m_data.begin() + m_head, m_data.begin() + m_head + len, begin);
+        m_head += len;
+        m_head %= m_size;
+        m_fill -= len;
+        begin += len;
+        remaining -= len;
+    }
+
+    return total;
+}
+
+unsigned int SampleSinkFifo::readBegin(unsigned int count,
+    SampleVector::iterator* part1Begin, SampleVector::iterator* part1End,
+    SampleVector::iterator* part2Begin, SampleVector::iterator* part2End)
+{
+    QMutexLocker mutexLocker(&m_mutex);
+
+    if (m_size == 0) {
+        return 0;
+    }
+
+    unsigned int total;
+    unsigned int remaining;
+    unsigned int len;
+    unsigned int head = m_head;
+
+    total = std::min(count, m_fill);
+
+    if (total < count)
+    {
+        qCritical("SampleSinkFifo::readBegin: (%s) underflow - missing %u samples",
+            qPrintable(m_label), count - total);
+        emit underflow(count - total);
+    }
+
+    remaining = total;
+
+    if (remaining > 0)
+    {
+        len = std::min(remaining, m_size - head);
+        *part1Begin = m_data.begin() + head;
+        *part1End = m_data.begin() + head + len;
+        head += len;
+        head %= m_size;
+        remaining -= len;
+    }
+    else
+    {
+        *part1Begin = m_data.end();
+        *part1End = m_data.end();
+    }
+
+    if (remaining > 0)
+    {
+        len = std::min(remaining, m_size - head);
+        *part2Begin = m_data.begin() + head;
+        *part2End = m_data.begin() + head + len;
+    }
+    else
+    {
+        *part2Begin = m_data.end();
+        *part2End = m_data.end();
+    }
+
+    return total;
+}
+
+unsigned int SampleSinkFifo::readCommit(unsigned int count)
+{
+    QMutexLocker mutexLocker(&m_mutex);
+
+    if (m_size == 0) {
+        return 0;
+    }
+
+    if (count > m_fill)
+    {
+        qCritical("SampleSinkFifo::readCommit: (%s) cannot commit more than available samples", qPrintable(m_label));
+        count = m_fill;
+    }
+
+    m_head = (m_head + count) % m_size;
+    m_fill -= count;
+
+    return count;
+}
+
+unsigned int SampleSinkFifo::getSizePolicy(unsigned int sampleRate)
+{
+    return (sampleRate/100)*64; // .64s
 }

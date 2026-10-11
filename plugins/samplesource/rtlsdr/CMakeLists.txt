@@ -1,77 +1,77 @@
 project(rtlsdr)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(rtlsdr_SOURCES
-    rtlsdrgui.cpp
     rtlsdrinput.cpp
     rtlsdrplugin.cpp
     rtlsdrsettings.cpp
+    rtlsdrwebapiadapter.cpp
     rtlsdrthread.cpp
 )
 
 set(rtlsdr_HEADERS
-    rtlsdrgui.h
     rtlsdrinput.h
     rtlsdrplugin.h
     rtlsdrsettings.h
+    rtlsdrwebapiadapter.h
     rtlsdrthread.h
 )
-
-set(rtlsdr_FORMS
-    rtlsdrgui.ui
-)
-
-if (BUILD_DEBIAN)
 include_directories(
-    .
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
-    ${LIBRTLSDRSRC}/include
-    ${LIBRTLSDRSRC}/src
-)
-else (BUILD_DEBIAN)
-include_directories(
-    .
-    ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
     ${LIBRTLSDR_INCLUDE_DIR}
 )
-endif (BUILD_DEBIAN)
 
-#include(${QT_USE_FILE})
-add_definitions(${QT_DEFINITIONS})
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
+if(NOT SERVER_MODE)
+    set(rtlsdr_SOURCES
+        ${rtlsdr_SOURCES}
+        rtlsdrgui.cpp
 
-#qt4_wrap_cpp(rtlsdr_HEADERS_MOC ${rtlsdr_HEADERS})
-qt5_wrap_ui(rtlsdr_FORMS_HEADERS ${rtlsdr_FORMS})
+        rtlsdrgui.ui
+    )
+    set(rtlsdr_HEADERS
+        ${rtlsdr_HEADERS}
+        rtlsdrgui.h
+    )
 
-add_library(inputrtlsdr SHARED
-    ${rtlsdr_SOURCES}
-    ${rtlsdr_HEADERS_MOC}
-    ${rtlsdr_FORMS_HEADERS}
+    set(TARGET_NAME ${PLUGINS_PREFIX}inputrtlsdr)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}inputrtlsdrsrv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
+
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${rtlsdr_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME RTLSDRPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${rtlsdr_SOURCES})
+endif()
+
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+if(LIBUSB_DEPENDS)
+    add_dependencies(${TARGET_NAME} ${LIBUSB_DEPENDS})
+endif()
+
+target_link_libraries(${TARGET_NAME} PRIVATE
+        Qt::Core
+        ${TARGET_LIB}
+	sdrbase
+	${TARGET_LIB_GUI}
+        swagger
+        ${LIBRTLSDR_LIBRARIES}
+        ${LIBUSB_LIBRARIES}
 )
 
-if (BUILD_DEBIAN)
-target_link_libraries(inputrtlsdr
-    ${QT_LIBRARIES}
-    rtlsdr
-    sdrbase
-    sdrgui
-    swagger
-)
-else (BUILD_DEBIAN)
-target_link_libraries(inputrtlsdr
-    ${QT_LIBRARIES}
-    ${LIBRTLSDR_LIBRARIES}
-    sdrbase
-    sdrgui
-    swagger
-)
-endif (BUILD_DEBIAN)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-
-target_link_libraries(inputrtlsdr Qt5::Core Qt5::Widgets)
-
-install(TARGETS inputrtlsdr DESTINATION lib/plugins/samplesource)
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

@@ -1,80 +1,78 @@
 project(bladerf1input)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(bladerf1input_SOURCES
-	bladerf1inputgui.cpp
 	bladerf1input.cpp
 	bladerf1inputplugin.cpp
-	bladerf1inputsettings.cpp
+    bladerf1inputsettings.cpp
+    bladerf1inputwebapiadapter.cpp
 	bladerf1inputthread.cpp
 )
 
 set(bladerf1input_HEADERS
-	bladerf1inputgui.h
 	bladerf1input.h
 	bladerf1inputplugin.h
-	bladerf1inputsettings.h
+    bladerf1inputsettings.h
+    bladerf1inputwebapiadapter.h
 	bladerf1inputthread.h
 )
 
-set(bladerf1input_FORMS
-	bladerf1inputgui.ui
-)
-
-if (BUILD_DEBIAN)
 include_directories(
-    .
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
-    ${CMAKE_SOURCE_DIR}/devices
-    ${LIBBLADERFLIBSRC}/include
-    ${LIBBLADERFLIBSRC}/src
-)
-else (BUILD_DEBIAN)
-include_directories(
-	.
-	${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
 	${CMAKE_SOURCE_DIR}/devices
-	${LIBBLADERF_INCLUDE_DIR}
-)
-endif (BUILD_DEBIAN)
-
-#include(${QT_USE_FILE})
-add_definitions(${QT_DEFINITIONS})
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
-
-#qt4_wrap_cpp(bladerf1input_HEADERS_MOC ${bladerf1input_HEADERS})
-qt5_wrap_ui(bladerf1input_FORMS_HEADERS ${bladerf1input_FORMS})
-
-add_library(inputbladerf1 SHARED
-	${bladerf1input_SOURCES}
-	${bladerf1input_HEADERS_MOC}
-	${bladerf1input_FORMS_HEADERS}
+	${LIBBLADERF_INCLUDE_DIRS}
 )
 
-if (BUILD_DEBIAN)
-target_link_libraries(inputbladerf1
-    ${QT_LIBRARIES}
-    bladerf
-    sdrbase
-    sdrgui
+if(NOT SERVER_MODE)
+    set(bladerf1input_SOURCES
+        ${bladerf1input_SOURCES}
+        bladerf1inputgui.cpp
+        bladerf1inputgui.ui
+    )
+    set(bladerf1input_HEADERS
+        ${bladerf1input_HEADERS}
+        bladerf1inputgui.h
+    )
+
+    set(TARGET_NAME ${PLUGINS_PREFIX}inputbladerf1)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}inputbladerf1srv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
+
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${bladerf1input_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME Blderf1InputPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${bladerf1input_SOURCES})
+endif()
+
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+if(LIBBLADERF_EXTERNAL)
+    add_dependencies(${TARGET_NAME} bladerf)
+endif()
+
+target_link_libraries(${TARGET_NAME} PRIVATE
+    Qt::Core
+    ${TARGET_LIB}
+	sdrbase
+	${TARGET_LIB_GUI}
     swagger
+    ${LIBBLADERF_LIBRARIES}
     bladerf1device
 )
-else (BUILD_DEBIAN)
-target_link_libraries(inputbladerf1
-	${QT_LIBRARIES}
-	${LIBBLADERF_LIBRARIES}
-	sdrbase
-	sdrgui
-	swagger
-	bladerf1device
-)
-endif (BUILD_DEBIAN)
 
-target_link_libraries(inputbladerf1 Qt5::Core Qt5::Widgets)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-install(TARGETS inputbladerf1 DESTINATION lib/plugins/samplesource)
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

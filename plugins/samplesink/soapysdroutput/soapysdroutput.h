@@ -1,5 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2019, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>    //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -117,6 +119,64 @@ public:
         { }
     };
 
+    class MsgGetStreamInfo : public Message {
+        MESSAGE_CLASS_DECLARATION
+
+    public:
+        static MsgGetStreamInfo* create() {
+            return new MsgGetStreamInfo();
+        }
+
+    private:
+        MsgGetStreamInfo() :
+            Message()
+        { }
+    };
+
+    class MsgReportStreamInfo : public Message {
+        MESSAGE_CLASS_DECLARATION
+
+    public:
+        bool     getSuccess() const { return m_success; }
+        bool     getActive() const { return m_active; }
+        uint32_t getUnderflows() const { return m_underflows; }
+        uint32_t getErrors() const { return m_errors; }
+
+        static MsgReportStreamInfo* create(
+                bool     success,
+                bool     active,
+                uint32_t underflows,
+                uint32_t errors
+                )
+        {
+            return new MsgReportStreamInfo(
+                    success,
+                    active,
+                    underflows,
+                    errors
+                    );
+        }
+
+    private:
+        bool     m_success;
+        bool     m_active;
+        uint32_t m_underflows;
+        uint32_t m_errors;
+
+        MsgReportStreamInfo(
+                bool     success,
+                bool     active,
+                uint32_t underflows,
+                uint32_t errors
+                ) :
+            Message(),
+            m_success(success),
+            m_active(active),
+            m_underflows(underflows),
+            m_errors(errors)
+        { }
+    };
+
     SoapySDROutput(DeviceAPI *deviceAPI);
     virtual ~SoapySDROutput();
     virtual void destroy();
@@ -181,9 +241,19 @@ public:
             SWGSDRangel::SWGDeviceState& response,
             QString& errorMessage);
 
+    static void webapiFormatDeviceSettings(
+            SWGSDRangel::SWGDeviceSettings& response,
+            const SoapySDROutputSettings& settings);
+
+    static void webapiUpdateDeviceSettings(
+            SoapySDROutputSettings& settings,
+            const QStringList& deviceSettingsKeys,
+            SWGSDRangel::SWGDeviceSettings& response);
+
 private:
     DeviceAPI *m_deviceAPI;
     QMutex m_mutex;
+    bool m_openSuccess;
     SoapySDROutputSettings m_settings;
     QString m_deviceDescription;
     bool m_running;
@@ -200,10 +270,9 @@ private:
     bool setDeviceCenterFrequency(SoapySDR::Device *dev, int requestedChannel, quint64 freq_hz, int loPpmTenths);
     void updateGains(SoapySDR::Device *dev, int requestedChannel, SoapySDROutputSettings& settings);
     void updateTunableElements(SoapySDR::Device *dev, int requestedChannel, SoapySDROutputSettings& settings);
-    void webapiFormatDeviceSettings(SWGSDRangel::SWGDeviceSettings& response, const SoapySDROutputSettings& settings);
     void webapiFormatDeviceReport(SWGSDRangel::SWGDeviceReport& response);
-    QVariant webapiVariantFromArgValue(SWGSDRangel::SWGArgValue *argValue);
-    void webapiFormatArgValue(const QVariant& v, SWGSDRangel::SWGArgValue *argValue);
+    static QVariant webapiVariantFromArgValue(SWGSDRangel::SWGArgValue *argValue);
+    static void webapiFormatArgValue(const QVariant& v, SWGSDRangel::SWGArgValue *argValue);
     void webapiFormatArgInfo(const SoapySDR::ArgInfo& arg, SWGSDRangel::SWGArgInfo *argInfo);
     void webapiReverseSendSettings(QList<QString>& deviceSettingsKeys, const SoapySDROutputSettings& settings, bool force);
     void webapiReverseSendStartStop(bool start);

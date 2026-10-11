@@ -1,6 +1,9 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2017 F4EXB                                                      //
-// written by Edouard Griffiths                                                  //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2017, 2019-2020, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com> //
+// Copyright (C) 2015 John Greb <hexameron@spam.no>                              //
+// Copyright (C) 2022-2023 Jon Beniston, M7RCE <jon@beniston.com>                //
 //                                                                               //
 // OpenGL interface modernization.                                               //
 // See: http://doc.qt.io/qt-5/qopenglshaderprogram.html                          //
@@ -19,46 +22,169 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.          //
 ///////////////////////////////////////////////////////////////////////////////////
 
+#include <QThread>
+#include <QPushButton>
+#include <QStandardItemModel>
+#include <QStandardItem>
+
 #include "samplingdevicedialog.h"
 #include "ui_samplingdevicedialog.h"
 #include "device/deviceenumerator.h"
+#include "maincore.h"
 
-
-SamplingDeviceDialog::SamplingDeviceDialog(bool rxElseTx, int deviceTabIndex, QWidget* parent) :
+SamplingDeviceDialog::SamplingDeviceDialog(int deviceType, QWidget* parent) :
     QDialog(parent),
     ui(new Ui::SamplingDeviceDialog),
-    m_rxElseTx(rxElseTx),
-    m_deviceTabIndex(deviceTabIndex),
-    m_selectedDeviceIndex(-1)
+    m_deviceType(deviceType),
+    m_selectedDeviceIndex(-1),
+    m_hasChanged(false),
+    m_progressDialog(nullptr)
 {
     ui->setupUi(this);
-
-    QList<QString> deviceDisplayNames;
-
-    if (m_rxElseTx) {
-        DeviceEnumerator::instance()->listRxDeviceNames(deviceDisplayNames, m_deviceIndexes);
-    } else {
-        DeviceEnumerator::instance()->listTxDeviceNames(deviceDisplayNames, m_deviceIndexes);
-    }
-
-    QStringList devicesNamesList(deviceDisplayNames);
-    ui->deviceSelect->addItems(devicesNamesList);
+    // Don't automatically call on_refreshDevices_clicked(), some drivers can be slow to enumerate
+    displayDevices();
+    connect(DeviceEnumerator::instance(), &DeviceEnumerator::enumeratingDevices, this, &SamplingDeviceDialog::enumeratingDevice);
 }
 
 SamplingDeviceDialog::~SamplingDeviceDialog()
 {
+    disconnect(DeviceEnumerator::instance(), &DeviceEnumerator::enumeratingDevices, this, &SamplingDeviceDialog::enumeratingDevice);
     delete ui;
+}
+
+int SamplingDeviceDialog::exec()
+{
+    m_hasChanged = false;
+    return QDialog::exec();
+}
+
+void SamplingDeviceDialog::displayDevices()
+{
+    QList<QString> deviceDisplayNames;
+
+    m_deviceIndexes.clear();
+    if (m_deviceType == 0) { // Single Rx
+        DeviceEnumerator::instance()->listRxDeviceNames(deviceDisplayNames, m_deviceIndexes);
+    } else if (m_deviceType == 1) { // Single Tx
+        DeviceEnumerator::instance()->listTxDeviceNames(deviceDisplayNames, m_deviceIndexes);
+    } else if (m_deviceType == 2) { // MIMO
+        DeviceEnumerator::instance()->listMIMODeviceNames(deviceDisplayNames, m_deviceIndexes);
+    }
+
+    ui->deviceSelect->clear();
+    ui->deviceSelect->addItems(deviceDisplayNames);
+
+    // --- Disable, but still list CLAIMED/BUSY hardware ---
+    QStandardItemModel *model = qobject_cast<QStandardItemModel*>(ui->deviceSelect->model());
+    int firstEnabled = -1;
+    if (model) {
+        for (int idx = 0; idx < deviceDisplayNames.size(); ++idx) {
+            if (idx < static_cast<int>(m_deviceIndexes.size())) {
+                int coreDeviceIndex = m_deviceIndexes[idx];
+                const PluginInterface::SamplingDevice *samplingDevice = nullptr;
+
+                if (m_deviceType == 0) {
+                    samplingDevice = DeviceEnumerator::instance()->getRxSamplingDevice(coreDeviceIndex);
+                } else if (m_deviceType == 1) {
+                    samplingDevice = DeviceEnumerator::instance()->getTxSamplingDevice(coreDeviceIndex);
+                } else if (m_deviceType == 2) {
+                    samplingDevice = DeviceEnumerator::instance()->getMIMOSamplingDevice(coreDeviceIndex);
+                }
+
+                if (samplingDevice && samplingDevice->claimed >= 0 &&
+                        samplingDevice->type != PluginInterface::SamplingDevice::BuiltInDevice) {
+                    QStandardItem *item = model->item(idx);
+                    if (item) {
+                        // Deactivate to block selection clicks
+                        item->setEnabled(false);
+                        // change the name, rather than a tooltip in case of touchscreen
+                        item->setText(item->text() + tr(" [in use]"));
+                    }
+                } else if (firstEnabled < 0) {
+                    firstEnabled = idx;
+                }
+            }
+        }
+
+        // Allow acceptance only when at least one selectable device exists
+        if (QPushButton *okButton = ui->buttonBox->button(QDialogButtonBox::Ok)) {
+            okButton->setEnabled(firstEnabled >= 0);
+        }
+        // Select the first available device
+        if (firstEnabled >= 0) {
+            ui->deviceSelect->setCurrentIndex(firstEnabled);
+        }
+    }
+}
+
+void SamplingDeviceDialog::setSelectedDeviceIndex(int deviceIndex)
+{
+    ui->deviceSelect->blockSignals(true);
+    ui->deviceSelect->setCurrentIndex(deviceIndex);
+    m_selectedDeviceIndex = deviceIndex;
+    ui->deviceSelect->blockSignals(false);
+}
+
+void SamplingDeviceDialog::getDeviceId(QString& id) const
+{
+    id  = ui->deviceSelect->currentText();
+}
+
+void SamplingDeviceDialog::on_deviceSelect_currentIndexChanged(int index)
+{
+    (void) index;
+    m_hasChanged = true;
+}
+
+void SamplingDeviceDialog::on_refreshDevices_clicked()
+{
+    m_progressDialog = new QProgressDialog("Enumerating devices", "", 0, 0, this);
+    m_progressDialog->setWindowModality(Qt::WindowModal);
+    m_progressDialog->setCancelButton(nullptr);
+    m_progressDialog->setWindowFlag(Qt::WindowCloseButtonHint, false);
+    m_progressDialog->show();
+    SamplingDeviceDialogWorker *worker = new SamplingDeviceDialogWorker(m_deviceType);
+    QThread *thread = new QThread();
+    thread->setObjectName(QString("Sampling:%1").arg(m_deviceType));
+    worker->moveToThread(thread);
+    connect(thread, &QThread::started, worker, &SamplingDeviceDialogWorker::enumerateDevices);
+    connect(worker, &SamplingDeviceDialogWorker::finishedWork, thread, &QThread::quit);
+    connect(worker, &SamplingDeviceDialogWorker::finishedWork, m_progressDialog, &QProgressDialog::close);
+    connect(worker, &SamplingDeviceDialogWorker::finishedWork, m_progressDialog, &QProgressDialog::deleteLater);
+    connect(worker, &SamplingDeviceDialogWorker::finishedWork, this, &SamplingDeviceDialog::displayDevices);
+    connect(worker, &SamplingDeviceDialogWorker::finishedWork, worker, &SamplingDeviceDialog::deleteLater);
+    connect(thread, &QThread::finished, thread, &QThread::deleteLater);
+    thread->start();
 }
 
 void SamplingDeviceDialog::accept()
 {
     m_selectedDeviceIndex = m_deviceIndexes[ui->deviceSelect->currentIndex()];
-
-    if (m_rxElseTx) {
-        DeviceEnumerator::instance()->changeRxSelection(m_deviceTabIndex, m_selectedDeviceIndex);
-    } else {
-        DeviceEnumerator::instance()->changeTxSelection(m_deviceTabIndex, m_selectedDeviceIndex);
-    }
-
     QDialog::accept();
+}
+
+void SamplingDeviceDialog::reject()
+{
+    m_hasChanged = false;
+    QDialog::reject();
+}
+
+void SamplingDeviceDialog::enumeratingDevice(const QString &deviceId)
+{
+    if (m_progressDialog) {
+        m_progressDialog->setLabelText("Enumerating " + deviceId);
+    }
+}
+
+void SamplingDeviceDialogWorker::enumerateDevices()
+{
+    PluginManager *pluginManager = MainCore::instance()->getPluginManager();
+    if (m_deviceType == 0) {
+        DeviceEnumerator::instance()->enumerateRxDevices(pluginManager);
+    } else if (m_deviceType == 1) {
+        DeviceEnumerator::instance()->enumerateTxDevices(pluginManager);
+    } else if (m_deviceType == 2) {
+        DeviceEnumerator::instance()->enumerateMIMODevices(pluginManager);
+    }
+    emit finishedWork();
 }

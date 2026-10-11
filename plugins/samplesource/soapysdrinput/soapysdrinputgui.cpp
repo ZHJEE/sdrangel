@@ -1,5 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2018-2020, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>    //
+// Copyright (C) 2022-2023 Jon Beniston, M7RCE <jon@beniston.com>                //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -17,15 +18,17 @@
 
 #include <QMessageBox>
 #include <QCheckBox>
+#include <QFileDialog>
+#include <QResizeEvent>
 
-#include "dsp/dspengine.h"
 #include "dsp/dspcommands.h"
 #include "device/deviceapi.h"
 #include "device/deviceuiset.h"
-#include "util/simpleserializer.h"
+#include "gui/messagedialog.h"
 #include "gui/glspectrum.h"
-#include "gui/crightclickenabler.h"
 #include "gui/basicdevicesettingsdialog.h"
+#include "gui/dialogpositioner.h"
+#include "mainspectrum/mainspectrumgui.h"
 #include "soapygui/discreterangegui.h"
 #include "soapygui/intervalrangegui.h"
 #include "soapygui/stringrangegui.h"
@@ -39,9 +42,8 @@
 #include "soapysdrinputgui.h"
 
 SoapySDRInputGui::SoapySDRInputGui(DeviceUISet *deviceUISet, QWidget* parent) :
-    QWidget(parent),
+    DeviceGUI(parent),
     ui(new Ui::SoapySDRInputGui),
-    m_deviceUISet(deviceUISet),
     m_forceSettings(true),
     m_doApplySettings(true),
     m_sampleSource(0),
@@ -58,8 +60,13 @@ SoapySDRInputGui::SoapySDRInputGui(DeviceUISet *deviceUISet, QWidget* parent) :
     m_autoDCCorrection(0),
     m_autoIQCorrection(0)
 {
+    m_deviceUISet = deviceUISet;
+    setAttribute(Qt::WA_DeleteOnClose, true);
     m_sampleSource = (SoapySDRInput*) m_deviceUISet->m_deviceAPI->getSampleSource();
-    ui->setupUi(this);
+    ui->setupUi(getContents());
+    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    getContents()->setStyleSheet("#SoapySDRInputGui { background-color: rgb(64, 64, 64); }");
+    m_helpURL = "plugins/samplesource/soapysdrinput/readme.md";
 
     ui->centerFrequency->setColorMapper(ColorMapper(ColorMapper::GrayGold));
     uint64_t f_min, f_max;
@@ -91,8 +98,7 @@ SoapySDRInputGui::SoapySDRInputGui(DeviceUISet *deviceUISet, QWidget* parent) :
     connect(&m_statusTimer, SIGNAL(timeout()), this, SLOT(updateStatus()));
     m_statusTimer.start(500);
 
-    CRightClickEnabler *startStopRightClickEnabler = new CRightClickEnabler(ui->startStop);
-    connect(startStopRightClickEnabler, SIGNAL(rightClick(const QPoint &)), this, SLOT(openDeviceSettingsDialog(const QPoint &)));
+    connect(this, SIGNAL(customContextMenuRequested(const QPoint &)), this, SLOT(openDeviceSettingsDialog(const QPoint &)));
 
     displaySettings();
 
@@ -100,10 +106,14 @@ SoapySDRInputGui::SoapySDRInputGui(DeviceUISet *deviceUISet, QWidget* parent) :
     m_sampleSource->setMessageQueueToGUI(&m_inputMessageQueue);
 
     sendSettings();
+    makeUIConnections();
+    m_resizer.enableChildMouseTracking();
 }
 
 SoapySDRInputGui::~SoapySDRInputGui()
 {
+    m_statusTimer.stop();
+    m_updateTimer.stop();
     delete ui;
 }
 
@@ -194,7 +204,7 @@ void SoapySDRInputGui::createTunableElementsControl(const std::vector<DeviceSoap
 
     std::vector<DeviceSoapySDRParams::FrequencySetting>::const_iterator it = tunableElementsList.begin() + 1;
 
-    for (int i = 0; it != tunableElementsList.end(); ++it, i++)
+    for (; it != tunableElementsList.end(); ++it)
     {
         if (it->m_ranges.size() == 0) { // skip empty ranges lists
             continue;
@@ -252,7 +262,7 @@ void SoapySDRInputGui::createIndividualGainsControl(const std::vector<DeviceSoap
     QVBoxLayout *layout = (QVBoxLayout *) ui->scrollAreaWidgetContents->layout();
     std::vector<DeviceSoapySDRParams::GainSetting>::const_iterator it = individualGainsList.begin();
 
-    for (int i = 0; it != individualGainsList.end(); ++it, i++)
+    for (; it != individualGainsList.end(); ++it)
     {
         IntervalSliderGUI *gainGUI = new IntervalSliderGUI(this);
         gainGUI->setInterval(it->m_range.minimum(), it->m_range.maximum());
@@ -368,7 +378,7 @@ void SoapySDRInputGui::createArgumentsControl(const SoapySDR::ArgInfoList& argIn
             std::vector<std::string>::const_iterator optionIt = it->options.begin();
             std::vector<std::string>::const_iterator optionNameIt = it->optionNames.begin();
 
-            for (int i = 0; optionIt != it->options.end(); ++optionIt, i++)
+            for (; optionIt != it->options.end(); ++optionIt)
             {
                 QString name(optionNameIt == it->optionNames.end() ? optionIt->c_str() : optionNameIt->c_str());
 
@@ -415,31 +425,9 @@ void SoapySDRInputGui::createArgumentsControl(const SoapySDR::ArgInfoList& argIn
     }
 }
 
-void SoapySDRInputGui::setName(const QString& name)
-{
-    setObjectName(name);
-}
-
-QString SoapySDRInputGui::getName() const
-{
-    return objectName();
-}
-
 void SoapySDRInputGui::resetToDefaults()
 {
     m_settings.resetToDefaults();
-    displaySettings();
-    sendSettings();
-}
-
-qint64 SoapySDRInputGui::getCenterFrequency() const
-{
-    return m_settings.m_centerFrequency;
-}
-
-void SoapySDRInputGui::setCenterFrequency(qint64 centerFrequency)
-{
-    m_settings.m_centerFrequency = centerFrequency;
     displaySettings();
     sendSettings();
 }
@@ -463,6 +451,12 @@ bool SoapySDRInputGui::deserialize(const QByteArray& data)
         resetToDefaults();
         return false;
     }
+}
+
+void SoapySDRInputGui::resizeEvent(QResizeEvent* size)
+{
+    resize(360, height());
+    size->accept();
 }
 
 bool SoapySDRInputGui::handleMessage(const Message& message)
@@ -538,10 +532,11 @@ void SoapySDRInputGui::handleInputMessages()
         }
         else
         {
-            if (handleMessage(*message))
+            if (!handleMessage(*message))
             {
-                delete message;
+                qDebug("%s: unhandled message: %s", Q_FUNC_INFO, message->getIdentifier());
             }
+            delete message;
         }
     }
 }
@@ -688,6 +683,7 @@ void SoapySDRInputGui::on_transverter_clicked()
 {
     m_settings.m_transverterMode = ui->transverter->getDeltaFrequencyAcive();
     m_settings.m_transverterDeltaFrequency = ui->transverter->getDeltaFrequency();
+    m_settings.m_iqOrder = ui->transverter->getIQOrder();
     qDebug("SoapySDRInputGui::on_transverter_clicked: %lld Hz %s", m_settings.m_transverterDeltaFrequency, m_settings.m_transverterMode ? "on" : "off");
     updateFrequencyLimits();
     setCenterFrequencySetting(ui->centerFrequency->getValueNew());
@@ -710,21 +706,17 @@ void SoapySDRInputGui::on_startStop_toggled(bool checked)
     }
 }
 
-void SoapySDRInputGui::on_record_toggled(bool checked)
-{
-    if (checked) {
-        ui->record->setStyleSheet("QToolButton { background-color : red; }");
-    } else {
-        ui->record->setStyleSheet("QToolButton { background:rgb(79,79,79); }");
-    }
-
-    SoapySDRInput::MsgFileRecord* message = SoapySDRInput::MsgFileRecord::create(checked);
-    m_sampleSource->getInputMessageQueue()->push(message);
-}
-
 void SoapySDRInputGui::displaySettings()
 {
     blockApplySettings(true);
+
+    setTitle(m_settings.m_title);
+    getDeviceUISet()->m_mainSpectrumGUI->setTitle(m_settings.m_title);
+    ui->transverter->setDeltaFrequency(m_settings.m_transverterDeltaFrequency);
+    ui->transverter->setDeltaFrequencyActive(m_settings.m_transverterMode);
+    ui->transverter->setIQOrder(m_settings.m_iqOrder);
+
+    updateFrequencyLimits();
 
     ui->centerFrequency->setValue(m_settings.m_centerFrequency / 1000);
 
@@ -870,12 +862,19 @@ void SoapySDRInputGui::updateFrequencyLimits()
     qint64 minLimit = f_min/1000 + deltaFrequency;
     qint64 maxLimit = f_max/1000 + deltaFrequency;
 
-    minLimit = minLimit < 0 ? 0 : minLimit > 9999999 ? 9999999 : minLimit;
-    maxLimit = maxLimit < 0 ? 0 : maxLimit > 9999999 ? 9999999 : maxLimit;
-
+    if (m_settings.m_transverterMode)
+    {
+        minLimit = minLimit < 0 ? 0 : minLimit > 999999999 ? 999999999 : minLimit;
+        maxLimit = maxLimit < 0 ? 0 : maxLimit > 999999999 ? 999999999 : maxLimit;
+        ui->centerFrequency->setValueRange(9, minLimit, maxLimit);
+    }
+    else
+    {
+        minLimit = minLimit < 0 ? 0 : minLimit > 9999999 ? 9999999 : minLimit;
+        maxLimit = maxLimit < 0 ? 0 : maxLimit > 9999999 ? 9999999 : maxLimit;
+        ui->centerFrequency->setValueRange(7, minLimit, maxLimit);
+    }
     qDebug("SoapySDRInputGui::updateFrequencyLimits: delta: %lld min: %lld max: %lld", deltaFrequency, minLimit, maxLimit);
-
-    ui->centerFrequency->setValueRange(7, minLimit, maxLimit);
 }
 
 void SoapySDRInputGui::setCenterFrequencySetting(uint64_t kHzValue)
@@ -922,7 +921,7 @@ void SoapySDRInputGui::updateStatus()
                 break;
             case DeviceAPI::StError:
                 ui->startStop->setStyleSheet("QToolButton { background-color : red; }");
-                QMessageBox::information(this, tr("Message"), m_deviceUISet->m_deviceAPI->errorMessage());
+                MessageDialog::information(this, tr("Message"), m_deviceUISet->m_deviceAPI->errorMessage());
                 break;
             default:
                 break;
@@ -934,19 +933,45 @@ void SoapySDRInputGui::updateStatus()
 
 void SoapySDRInputGui::openDeviceSettingsDialog(const QPoint& p)
 {
-    BasicDeviceSettingsDialog dialog(this);
-    dialog.setUseReverseAPI(m_settings.m_useReverseAPI);
-    dialog.setReverseAPIAddress(m_settings.m_reverseAPIAddress);
-    dialog.setReverseAPIPort(m_settings.m_reverseAPIPort);
-    dialog.setReverseAPIDeviceIndex(m_settings.m_reverseAPIDeviceIndex);
+    if (m_contextMenuType == ContextMenuDeviceSettings)
+    {
+        BasicDeviceSettingsDialog dialog(this);
+        dialog.setUseReverseAPI(m_settings.m_useReverseAPI);
+        dialog.setReverseAPIAddress(m_settings.m_reverseAPIAddress);
+        dialog.setReverseAPIPort(m_settings.m_reverseAPIPort);
+        dialog.setReverseAPIDeviceIndex(m_settings.m_reverseAPIDeviceIndex);
+        dialog.setTitle(m_settings.m_title);
+        dialog.setDefaultTitle(getDefaultTitle());
 
-    dialog.move(p);
-    dialog.exec();
+        dialog.move(p);
+        new DialogPositioner(&dialog, false);
+        dialog.exec();
 
-    m_settings.m_useReverseAPI = dialog.useReverseAPI();
-    m_settings.m_reverseAPIAddress = dialog.getReverseAPIAddress();
-    m_settings.m_reverseAPIPort = dialog.getReverseAPIPort();
-    m_settings.m_reverseAPIDeviceIndex = dialog.getReverseAPIDeviceIndex();
+        if (dialog.result() == QDialog::Accepted)
+        {
+            m_settings.m_title = dialog.getTitle();
+            setTitle(m_settings.m_title);
+            getDeviceUISet()->m_mainSpectrumGUI->setTitle(m_settings.m_title);
+            m_settings.m_useReverseAPI = dialog.useReverseAPI();
+            m_settings.m_reverseAPIAddress = dialog.getReverseAPIAddress();
+            m_settings.m_reverseAPIPort = dialog.getReverseAPIPort();
+            m_settings.m_reverseAPIDeviceIndex = dialog.getReverseAPIDeviceIndex();
 
-    sendSettings();
+            sendSettings();
+        }
+    }
+
+    resetContextMenuType();
+}
+
+void SoapySDRInputGui::makeUIConnections()
+{
+    QObject::connect(ui->centerFrequency, &ValueDial::changed, this, &SoapySDRInputGui::on_centerFrequency_changed);
+    QObject::connect(ui->LOppm, &QSlider::valueChanged, this, &SoapySDRInputGui::on_LOppm_valueChanged);
+    QObject::connect(ui->dcOffset, &ButtonSwitch::toggled, this, &SoapySDRInputGui::on_dcOffset_toggled);
+    QObject::connect(ui->iqImbalance, &ButtonSwitch::toggled, this, &SoapySDRInputGui::on_iqImbalance_toggled);
+    QObject::connect(ui->decim, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SoapySDRInputGui::on_decim_currentIndexChanged);
+    QObject::connect(ui->fcPos, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SoapySDRInputGui::on_fcPos_currentIndexChanged);
+    QObject::connect(ui->transverter, &TransverterButton::clicked, this, &SoapySDRInputGui::on_transverter_clicked);
+    QObject::connect(ui->startStop, &ButtonSwitch::toggled, this, &SoapySDRInputGui::on_startStop_toggled);
 }

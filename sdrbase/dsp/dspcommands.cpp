@@ -1,6 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2015 F4EXB                                                      //
-// written by Edouard Griffiths                                                  //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2016, 2018-2019, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com> //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -21,9 +22,11 @@
 MESSAGE_CLASS_DEFINITION(DSPAcquisitionInit, Message)
 MESSAGE_CLASS_DEFINITION(DSPAcquisitionStart, Message)
 MESSAGE_CLASS_DEFINITION(DSPAcquisitionStop, Message)
+MESSAGE_CLASS_DEFINITION(DSPAcquisitionError, Message)
 MESSAGE_CLASS_DEFINITION(DSPGenerationInit, Message)
 MESSAGE_CLASS_DEFINITION(DSPGenerationStart, Message)
 MESSAGE_CLASS_DEFINITION(DSPGenerationStop, Message)
+MESSAGE_CLASS_DEFINITION(DSPGenerationError, Message)
 MESSAGE_CLASS_DEFINITION(DSPGetSourceDeviceDescription, Message)
 MESSAGE_CLASS_DEFINITION(DSPGetSinkDeviceDescription, Message)
 MESSAGE_CLASS_DEFINITION(DSPGetErrorMessage, Message)
@@ -35,15 +38,13 @@ MESSAGE_CLASS_DEFINITION(DSPAddBasebandSampleSource, Message)
 MESSAGE_CLASS_DEFINITION(DSPRemoveBasebandSampleSink, Message)
 MESSAGE_CLASS_DEFINITION(DSPRemoveSpectrumSink, Message)
 MESSAGE_CLASS_DEFINITION(DSPRemoveBasebandSampleSource, Message)
-MESSAGE_CLASS_DEFINITION(DSPAddThreadedBasebandSampleSink, Message)
-MESSAGE_CLASS_DEFINITION(DSPAddThreadedBasebandSampleSource, Message)
-MESSAGE_CLASS_DEFINITION(DSPRemoveThreadedBasebandSampleSink, Message)
-MESSAGE_CLASS_DEFINITION(DSPRemoveThreadedBasebandSampleSource, Message)
 MESSAGE_CLASS_DEFINITION(DSPAddAudioSink, Message)
 MESSAGE_CLASS_DEFINITION(DSPRemoveAudioSink, Message)
 MESSAGE_CLASS_DEFINITION(DSPConfigureCorrection, Message)
 MESSAGE_CLASS_DEFINITION(DSPEngineReport, Message)
 MESSAGE_CLASS_DEFINITION(DSPConfigureScopeVis, Message)
 MESSAGE_CLASS_DEFINITION(DSPSignalNotification, Message)
+MESSAGE_CLASS_DEFINITION(DSPMIMOSignalNotification, Message)
 MESSAGE_CLASS_DEFINITION(DSPConfigureChannelizer, Message)
 MESSAGE_CLASS_DEFINITION(DSPConfigureAudio, Message)
+MESSAGE_CLASS_DEFINITION(DSPPushMbeFrame, Message)

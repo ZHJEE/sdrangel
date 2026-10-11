@@ -1,7 +1,10 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2017 Edouard Griffiths, F4EXB.                                  //
-//                                                                               //
-// Swagger server adapter interface                                              //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2020 Edouard Griffiths, F4EXB <f4exb06@gmail.com>          //
+// Copyright (C) 2019 Davide Gerhard <rainbow@irh.it>                            //
+// Copyright (C) 2023 Jon Beniston, M7RCE <jon@beniston.com>                     //
+// Copyright (C) 2023 Daniele Forsi <iu5hkx@gmail.com>                           //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -19,21 +22,109 @@
 
 #include <QCoreApplication>
 #include <QSysInfo>
+#include <exception>
+#include <cstdlib>
+#if defined(HAVE_LIBUNWIND)
+#include <libunwind.h>
+#include <cxxabi.h>
+#endif
 
 #include <signal.h>
-#include <unistd.h>
 #include <vector>
 
 #include "loggerwithfile.h"
-#include "maincore.h"
+#include "mainparser.h"
+#include "mainserver.h"
+#include "remotetcpsinkstarter.h"
 #include "dsp/dsptypes.h"
-#include "sdrangel_version.h"
+
+static void logExceptionStackTrace()
+{
+#if defined(HAVE_LIBUNWIND)
+    unw_context_t context;
+    unw_cursor_t cursor;
+    if (unw_getcontext(&context) != 0) {
+        qCritical("Failed to capture unwind context.");
+        return;
+    }
+    if (unw_init_local(&cursor, &context) != 0) {
+        qCritical("Failed to initialize unwind cursor.");
+        return;
+    }
+
+    qCritical("Stack trace (libunwind):");
+    int frame = 0;
+    while (unw_step(&cursor) > 0 && frame < 64) {
+        unw_word_t pc = 0;
+        unw_word_t offset = 0;
+        char symbol[256];
+        symbol[0] = '\0';
+
+        if (unw_get_reg(&cursor, UNW_REG_IP, &pc) != 0) {
+            pc = 0;
+        }
+
+        if (unw_get_proc_name(&cursor, symbol, sizeof(symbol), &offset) == 0) {
+            int status = 0;
+            char *demangled = abi::__cxa_demangle(symbol, nullptr, nullptr, &status);
+            const char *name = (status == 0 && demangled) ? demangled : symbol;
+            qCritical("#%d 0x%llx %s + 0x%llx", frame, static_cast<unsigned long long>(pc), name,
+                      static_cast<unsigned long long>(offset));
+            std::free(demangled);
+        } else {
+            qCritical("#%d 0x%llx <unknown>", frame, static_cast<unsigned long long>(pc));
+        }
+
+        ++frame;
+    }
+#else
+    qCritical("Stack trace unavailable (libunwind not enabled).");
+#endif
+}
+
+class SDRangelServerApplication final : public QCoreApplication
+{
+public:
+    SDRangelServerApplication(int &argc, char **argv) : QCoreApplication(argc, argv)
+    {
+    }
+
+    bool notify(QObject *receiver, QEvent *event) override
+    {
+        static bool s_exitRequested = false;
+        try {
+            return QCoreApplication::notify(receiver, event);
+        } catch (const std::bad_alloc &ex) {
+            qCritical() << "Out of memory in event handler:" << ex.what();
+            if (receiver && receiver->metaObject()) {
+                qCritical() << "Failed on object:" << receiver << receiver->metaObject()->className();
+            } else {
+                qCritical() << "Failed on object: (null)";
+            }
+            logExceptionStackTrace();
+        } catch (const std::exception &ex) {
+            qCritical("Unhandled exception in event handler: %s", ex.what());
+            logExceptionStackTrace();
+        } catch (...) {
+            qCritical("Unhandled non-standard exception in event handler.");
+            logExceptionStackTrace();
+        }
+
+        if (!s_exitRequested) {
+            s_exitRequested = true;
+            QCoreApplication::exit(EXIT_FAILURE);
+        }
+
+        return false;
+    }
+};
 
 void handler(int sig) {
     fprintf(stderr, "quit the application by signal(%d).\n", sig);
     QCoreApplication::quit();
 }
 
+#ifndef _WIN32
 void catchUnixSignals(const std::vector<int>& quitSignals) {
     sigset_t blocking_mask;
     sigemptyset(&blocking_mask);
@@ -51,48 +142,70 @@ void catchUnixSignals(const std::vector<int>& quitSignals) {
         sigaction(*it, &sa, 0);
     }
 }
+#endif
 
 static int runQtApplication(int argc, char* argv[], qtwebapp::LoggerWithFile *logger)
 {
-    QCoreApplication a(argc, argv);
+    SDRangelServerApplication a(argc, argv);
 
     QCoreApplication::setOrganizationName("f4exb");
     QCoreApplication::setApplicationName("SDRangelSrv");
-    QCoreApplication::setApplicationVersion(GIT_COMMIT_HASH_STR);
+    QCoreApplication::setApplicationVersion(SDRANGEL_VERSION);
 
+#ifndef _WIN32
     int catchSignals[] = {SIGQUIT, SIGINT, SIGTERM, SIGHUP};
     std::vector<int> vsig(catchSignals, catchSignals + sizeof(catchSignals) / sizeof(int));
     catchUnixSignals(vsig);
+#endif
 
     MainParser parser;
     parser.parse(a);
 
-#if QT_VERSION >= 0x050400
+#if QT_VERSION >= QT_VERSION_CHECK(5, 4, 0)
     qInfo("%s %s Qt %s %db %s %s DSP Rx:%db Tx:%db PID %lld",
-            qPrintable(QCoreApplication::applicationName()),
-            qPrintable(QCoreApplication::applicationVersion()),
-            qPrintable(QString(QT_VERSION_STR)),
-            QT_POINTER_SIZE*8,
-            qPrintable(QSysInfo::currentCpuArchitecture()),
-            qPrintable(QSysInfo::prettyProductName()),
-            SDR_RX_SAMP_SZ,
-            SDR_TX_SAMP_SZ,
-            QCoreApplication::applicationPid());
+          qPrintable(QCoreApplication::applicationName()),
+          qPrintable(QCoreApplication::applicationVersion()),
+          qPrintable(QString(QT_VERSION_STR)),
+          QT_POINTER_SIZE*8,
+          qPrintable(QSysInfo::currentCpuArchitecture()),
+          qPrintable(QSysInfo::prettyProductName()),
+          SDR_RX_SAMP_SZ,
+          SDR_TX_SAMP_SZ,
+          QCoreApplication::applicationPid());
 #else
     qInfo("%s %s Qt %s %db DSP Rx:%db Tx:%db PID %lld",
-            qPrintable(QCoreApplication::applicationName()),
-            qPrintable((QCoreApplication::>applicationVersion()),
-            qPrintable(QString(QT_VERSION_STR)),
-            QT_POINTER_SIZE*8,
-            SDR_RX_SAMP_SZ,
-            SDR_TX_SAMP_SZ,
-            QCoreApplication::applicationPid());
+          qPrintable(QCoreApplication::applicationName()),
+          qPrintable(QCoreApplication::applicationVersion()),
+                     qPrintable(QString(QT_VERSION_STR)),
+                     QT_POINTER_SIZE*8,
+                     SDR_RX_SAMP_SZ,
+                     SDR_TX_SAMP_SZ,
+                     QCoreApplication::applicationPid());
 #endif
 
-    MainCore m(logger, parser, &a);
+    if (parser.getListDevices())
+    {
+        // Disable log on console, so we can more easily see device list
+        logger->setConsoleMinMessageLevel(QtFatalMsg);
+        // Don't pass logger to MainServer, otherwise it can re-enable log output
+        logger = nullptr;
+    }
+
+    MainServer m(logger, parser, &a);
 
     // This will cause the application to exit when the main core is finished
     QObject::connect(&m, SIGNAL(finished()), &a, SLOT(quit()));
+
+    if (parser.getListDevices())
+    {
+        // List available physical devices and exit
+        RemoteTCPSinkStarter::listAvailableDevices();
+        exit (EXIT_SUCCESS);
+    }
+
+    if (parser.getRemoteTCPSink()) {
+        RemoteTCPSinkStarter::start(parser);
+    }
 
     return a.exec();
 }
@@ -102,8 +215,7 @@ int main(int argc, char* argv[])
     qtwebapp::LoggerWithFile *logger = new qtwebapp::LoggerWithFile(qApp);
     logger->installMsgHandler();
     int res = runQtApplication(argc, argv, logger);
+    delete logger;
     qWarning("SDRangel quit.");
     return res;
 }
-
-

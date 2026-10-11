@@ -1,82 +1,80 @@
 project(perseus)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(perseus_SOURCES
-    perseusgui.cpp
     perseusinput.cpp
     perseusplugin.cpp
     perseussettings.cpp
-    perseusthread.cpp
+    perseuswebapiadapter.cpp
+    perseusworker.cpp
 )
 
 set(perseus_HEADERS
-    perseusgui.h
     perseusinput.h
     perseusplugin.h
     perseussettings.h
-    perseusthread.h
+    perseuswebapiadapter.h
+    perseusworker.h
 )
 
-set(perseus_FORMS
-    perseusgui.ui
-)
-
-if (BUILD_DEBIAN)
 include_directories(
-    .
-    ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
-    ${CMAKE_SOURCE_DIR}/devices        
-    ${LIBPERSEUSSRC}
-    ${LIBPERSEUSSRC}/libperseus/src
-)
-else (BUILD_DEBIAN)
-include_directories(
-    .
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
-    ${CMAKE_SOURCE_DIR}/devices        
+    ${CMAKE_SOURCE_DIR}/devices
+    ${LIBUSB_INCLUDE_DIR}
     ${LIBPERSEUS_INCLUDE_DIR}
 )
-endif (BUILD_DEBIAN)
 
-#include(${QT_USE_FILE})
-#add_definitions(${QT_DEFINITIONS})
-add_definitions("${QT_DEFINITIONS} -DLIBAIRSPY_DYN_RATES")
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
+if(NOT SERVER_MODE)
+    set(perseus_SOURCES
+        ${perseus_SOURCES}
+        perseusgui.cpp
 
-#qt4_wrap_cpp(perseus_HEADERS_MOC ${perseus_HEADERS})
-qt5_wrap_ui(perseus_FORMS_HEADERS ${perseus_FORMS})
+        perseusgui.ui
+    )
+    set(perseus_HEADERS
+        ${perseus_HEADERS}
+        perseusgui.h
+    )
 
-add_library(inputperseus SHARED
-    ${perseus_SOURCES}
-    ${perseus_HEADERS_MOC}
-    ${perseus_FORMS_HEADERS}
+    set(TARGET_NAME ${PLUGINS_PREFIX}inputperseus)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}inputperseussrv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
+
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${perseus_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME PerseusPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${perseus_SOURCES})
+endif()
+
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+if(LIBPERSEUS_EXTERNAL)
+    add_dependencies(${TARGET_NAME} perseus)
+endif()
+target_link_libraries(${TARGET_NAME} PRIVATE
+        Qt::Core
+        ${TARGET_LIB}
+	sdrbase
+	${TARGET_LIB_GUI}
+        swagger
+        ${LIBUSB_LIBRARIES}
+        ${LIBPERSEUS_LIBRARIES}
+        perseusdevice
 )
 
-if (BUILD_DEBIAN)
-target_link_libraries(inputperseus
-    ${QT_LIBRARIES}
-    perseus
-    sdrbase
-    sdrgui
-    swagger
-    perseusdevice
-)
-else (BUILD_DEBIAN)
-target_link_libraries(inputperseus
-    ${QT_LIBRARIES}
-    ${LIBPERSEUS_LIBRARIES}
-    sdrbase
-    sdrgui
-    swagger
-    perseusdevice
-)
-endif (BUILD_DEBIAN)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-
-qt5_use_modules(inputperseus Core Widgets)
-
-install(TARGETS inputperseus DESTINATION lib/plugins/samplesource)
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

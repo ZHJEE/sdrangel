@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import requests, json, traceback, sys, time
 from optparse import OptionParser
@@ -53,7 +53,6 @@ def getInputOptions():
     parser.add_option("--rmt-address", dest="remote_address", help="RemoteSink: destination data address", metavar="IP_ADDRESS", type="string")
     parser.add_option("--rmt-port", dest="remote_port", help="RemoteSink: destination data port", metavar="PORT", type="int")
     parser.add_option("--rmt-fec", dest="remote_fec", help="RemoteSink: number of FEC blocks per frame", metavar="NUMBER", type="int")
-    parser.add_option("--rmt-txdelay", dest="remote_tx_delay", help="RemoteSink: inter block UDP Tx delay percentage", metavar="PERCENT", type="int")
 
     (options, args) = parser.parse_args()
 
@@ -64,7 +63,7 @@ def getInputOptions():
         options.device_index = 0
 
     if options.device_hwid == None:
-        options.device_hwid = "FileSource"
+        options.device_hwid = "FileInput"
 
     if options.device_freq == None:
         options.device_freq = 435000
@@ -326,8 +325,6 @@ def setupChannel(deviceset_url, options):
             settings["RemoteSinkSettings"]["dataPort"] = options.remote_port
         if options.remote_fec:
             settings["RemoteSinkSettings"]["nbFECBlocks"] = options.remote_fec
-        if options.remote_tx_delay:
-            settings["RemoteSinkSettings"]["txDelay"] = options.remote_tx_delay
 
     r = callAPI(deviceset_url + "/channel/%d/settings" % i, "PATCH", None, settings, "Change demod")
     if r is None:

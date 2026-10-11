@@ -1,5 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2018 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2020, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>    //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -30,6 +32,7 @@ struct SoapySDRInputSettings {
         FC_POS_CENTER
     } fcPos_t;
 
+    QString m_title;
     quint64 m_centerFrequency;
     qint32 m_LOppmTenths;
     qint32 m_devSampleRate;
@@ -39,7 +42,7 @@ struct SoapySDRInputSettings {
     bool m_softIQCorrection;
     bool m_transverterMode;
     qint64 m_transverterDeltaFrequency;
-    QString m_fileRecordName;
+    bool m_iqOrder;
     QString m_antenna;
     quint32 m_bandwidth;
     QMap<QString, double> m_tunableElements;

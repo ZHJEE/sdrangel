@@ -1,23 +1,30 @@
-// This file is part of LeanSDR Copyright (C) 2018 <pabr@pabr.org>.
-// See the toplevel README for more information.
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+///////////////////////////////////////////////////////////////////////////////////////
+// Copyright (C) 2019-2020 Edouard Griffiths, F4EXB <f4exb06@gmail.com>              //
+// Copyright (C) 2019 Martin Hauke <mardnh@gmx.de>                                   //
+//                                                                                   //
+// This file is part of LeanSDR Copyright (C) 2016-2018 <pabr@pabr.org>.             //
+//                                                                                   //
+// This program is free software; you can redistribute it and/or modify              //
+// it under the terms of the GNU General Public License as published by              //
+// the Free Software Foundation as version 3 of the License, or                      //
+// (at your option) any later version.                                               //
+//                                                                                   //
+// This program is distributed in the hope that it will be useful,                   //
+// but WITHOUT ANY WARRANTY; without even the implied warranty of                    //
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the                      //
+// GNU General Public License V3 for more details.                                   //
+//                                                                                   //
+// You should have received a copy of the GNU General Public License                 //
+// along with this program. If not, see <http://www.gnu.org/licenses/>.              //
+///////////////////////////////////////////////////////////////////////////////////////
 
 #ifndef LEANSDR_DISCRMATH_H
 #define LEANSDR_DISCRMATH_H
 
+#pragma GCC diagnostic ignored "-Wshift-negative-value"
+
 #include  <cstddef>
+#include <type_traits>
 
 namespace leansdr
 {
@@ -36,11 +43,11 @@ struct bitvect
     static const size_t NW = (N + WSIZE - 1) / WSIZE;
     T v[NW];
 
-    bitvect() {}
+    bitvect() : v{} {}
     bitvect(T val)
     {
         v[0] = val;
-        for (int i = 1; i < NW; ++i)
+        for (unsigned int i = 1; i < NW; ++i)
             v[i] = 0;
     }
 
@@ -52,7 +59,7 @@ struct bitvect
         for (int i = 0; i < nw; ++i)
             v[i] = a.v[i];
         if (M < N)
-            for (int i = a.NW; i < NW; ++i)
+            for (size_t i = a.NW; i < NW; ++i)
                 v[i] = 0;
         if (M > N)
             truncate_to_N();
@@ -103,7 +110,7 @@ struct bitvect
 
 // Return m modulo (X^N+p).
 // p is typically a generator polynomial of degree N
-// with the highest-coefficient monomial ommitted.
+// with the highest-coefficient monomial omitted.
 // m is packed into nm words of type Tm.
 // The MSB of m[0] is the highest-order coefficient of m.
 
@@ -139,7 +146,7 @@ bitvect<T, N> shiftdivmod(const Tm *m, size_t nm, const bitvect<T, N> &p,
                           T init = 0)
 {
     bitvect<T, N> res;
-    for (int i = 0; i < res.NW; ++i)
+    for (unsigned int i = 0; i < res.NW; ++i)
         res.v[i] = init;
     const Tm bitmask = (Tm)1 << (sizeof(Tm) * 8 - 1);
     for (; nm--; ++m)
@@ -217,6 +224,11 @@ bitvect<T, N> operator*(bitvect<T, N> a, const bitvect<T, NB> &b)
 template <typename Te, int N, Te ALPHA, Te TRUNCP>
 struct gf2n
 {
+    // Field elements are represented as packed polynomial coefficients:
+    // bit i corresponds to the coefficient of X^i. Unsigned storage is
+    // required so bit operations have well-defined behavior.
+    static_assert(std::is_unsigned_v<Te>, "Te must be unsigned");
+
     typedef Te element;
     static const Te alpha = ALPHA;
     gf2n()
@@ -230,9 +242,14 @@ struct gf2n
             lut_exp[i] = alpha_i;                  // ALPHA^i
             lut_exp[((1 << N) - 1) + i] = alpha_i; // Wrap to avoid modulo 2^N-1
             lut_log[alpha_i] = i;
-            bool overflow = alpha_i & (1 << (N - 1));
-            alpha_i <<= 1;               // Multiply by alpha=[X] i.e. increase degrees
-            alpha_i &= ~((~(Te)0) << N); // In case Te is wider than N bits
+            // Multiplication by ALPHA=[X] shifts the polynomial left by one.
+            // If the X^(N-1) coefficient was set, the shift will overflow and
+            // the generator polynomial must be applied modulo P(X).
+            bool overflow = alpha_i & (static_cast<Te>(1) << (N - 1));
+            alpha_i *= 2;                // Multiply by alpha=[X] i.e. increase degrees
+            // Keep only the lowest N bits. This removes the X^N term and
+            // higher bits before applying the generator polynomial reduction.
+            alpha_i &= static_cast<Te>((static_cast<Te>(1) << N) - 1);
             if (overflow)
                 alpha_i ^= TRUNCP; // Modulo P iteratively
         }

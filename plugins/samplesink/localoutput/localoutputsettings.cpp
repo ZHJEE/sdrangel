@@ -1,5 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2019 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2012 maintech GmbH, Otto-Hahn-Str. 15, 97204 Hoechberg, Germany //
+// written by Christian Daniel                                                   //
+// Copyright (C) 2015-2019, 2022 Edouard Griffiths, F4EXB <f4exb06@gmail.com>    //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -25,6 +27,7 @@ LocalOutputSettings::LocalOutputSettings()
 
 void LocalOutputSettings::resetToDefaults()
 {
+    m_title = "LocalOutput";
     m_useReverseAPI = false;
     m_reverseAPIAddress = "127.0.0.1";
     m_reverseAPIPort = 8888;
@@ -35,6 +38,7 @@ QByteArray LocalOutputSettings::serialize() const
 {
     SimpleSerializer s(1);
 
+    s.writeString(1, m_title);
     s.writeString(4, m_reverseAPIAddress);
     s.writeU32(5, m_reverseAPIPort);
     s.writeU32(6, m_reverseAPIDeviceIndex);
@@ -56,6 +60,7 @@ bool LocalOutputSettings::deserialize(const QByteArray& data)
     {
         quint32 uintval;
 
+        d.readString(1, &m_title, "LocalOutput");
         d.readString(4, &m_reverseAPIAddress, "127.0.0.1");
         d.readU32(5, &uintval, 0);
 
@@ -67,6 +72,7 @@ bool LocalOutputSettings::deserialize(const QByteArray& data)
 
         d.readU32(6, &uintval, 0);
         m_reverseAPIDeviceIndex = uintval > 99 ? 99 : uintval;
+
         return true;
     }
     else
@@ -76,5 +82,44 @@ bool LocalOutputSettings::deserialize(const QByteArray& data)
     }
 }
 
+void LocalOutputSettings::applySettings(const QStringList& settingsKeys, const LocalOutputSettings& settings)
+{
+    if (settingsKeys.contains("title")) {
+        m_title = settings.m_title;
+    }
+    if (settingsKeys.contains("useReverseAPI")) {
+        m_useReverseAPI = settings.m_useReverseAPI;
+    }
+    if (settingsKeys.contains("reverseAPIAddress")) {
+        m_reverseAPIAddress = settings.m_reverseAPIAddress;
+    }
+    if (settingsKeys.contains("reverseAPIPort")) {
+        m_reverseAPIPort = settings.m_reverseAPIPort;
+    }
+    if (settingsKeys.contains("reverseAPIDeviceIndex")) {
+        m_reverseAPIDeviceIndex = settings.m_reverseAPIDeviceIndex;
+    }
+}
 
+QString LocalOutputSettings::getDebugString(const QStringList& settingsKeys, bool force) const
+{
+    std::ostringstream ostr;
 
+    if (settingsKeys.contains("title") || force) {
+        ostr << " m_title: " << m_title.toStdString();
+    }
+    if (settingsKeys.contains("useReverseAPI") || force) {
+        ostr << " m_useReverseAPI: " << m_useReverseAPI;
+    }
+    if (settingsKeys.contains("reverseAPIAddress") || force) {
+        ostr << " m_reverseAPIAddress: " << m_reverseAPIAddress.toStdString();
+    }
+    if (settingsKeys.contains("reverseAPIPort") || force) {
+        ostr << " m_reverseAPIPort: " << m_reverseAPIPort;
+    }
+    if (settingsKeys.contains("reverseAPIDeviceIndex") || force) {
+        ostr << " m_reverseAPIDeviceIndex: " << m_reverseAPIDeviceIndex;
+    }
+
+    return QString(ostr.str().c_str());
+}

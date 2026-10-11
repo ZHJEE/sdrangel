@@ -1,54 +1,75 @@
 project(am)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(am_SOURCES
 	amdemod.cpp
-	amdemodgui.cpp
-	amdemodsettings.cpp
-	amdemodplugin.cpp
-	amdemodssbdialog.cpp
+    amdemodsettings.cpp
+    amdemodbaseband.cpp
+    amdemodsink.cpp
+    amdemodplugin.cpp
+    amdemodwebapiadapter.cpp
 )
 
 set(am_HEADERS
 	amdemod.h
-	amdemodgui.h
-	amdemodsettings.h
-	amdemodplugin.h
-	amdemodssbdialog.h
+    amdemodsettings.h
+    amdemodbaseband.h
+    amdemodsink.h
+    amdemodplugin.h
+    amdemodwebapiadapter.h
 )
 
-set(am_FORMS
-	amdemodgui.ui
-	amdemodssb.ui
-)
 
 include_directories(
-	.
-	${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client	
+        ${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
 )
 
-#include(${QT_USE_FILE})
-add_definitions(${QT_DEFINITIONS})
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
+if(NOT SERVER_MODE)
+    set(am_SOURCES
+        ${am_SOURCES}
+        amdemodgui.cpp
+        amdemodssbdialog.cpp
+        amdemodgui.ui
+        amdemodssb.ui
+    )
+    set(am_HEADERS
+        ${am_HEADERS}
+	    amdemodgui.h
+        amdemodssbdialog.h
+    )
 
-#qt5_wrap_cpp(nfm_HEADERS_MOC ${nfm_HEADERS})
-qt5_wrap_ui(am_FORMS_HEADERS ${am_FORMS})
+    set(TARGET_NAME ${PLUGINS_PREFIX}demodam)
+    set(TARGET_LIB "Qt::Widgets")
+    set(TARGET_LIB_GUI "sdrgui")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
+else()
+    set(TARGET_NAME ${PLUGINSSRV_PREFIX}demodamsrv)
+    set(TARGET_LIB "")
+    set(TARGET_LIB_GUI "")
+    set(INSTALL_FOLDER ${INSTALL_PLUGINSSRV_DIR})
+endif()
 
-add_library(demodam SHARED
-	${am_SOURCES}
-	${am_HEADERS_MOC}
-	${am_FORMS_HEADERS}
-)
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${am_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME AMDemodPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${am_SOURCES})
+endif()
 
-target_link_libraries(demodam
-	${QT_LIBRARIES}
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
+
+target_link_libraries(${TARGET_NAME} PRIVATE
+    Qt::Core
+    ${TARGET_LIB}
 	sdrbase
-	sdrgui
+	${TARGET_LIB_GUI}
 )
 
-target_link_libraries(demodam Qt5::Core Qt5::Widgets)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-install(TARGETS demodam DESTINATION lib/plugins/channelrx)
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

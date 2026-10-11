@@ -28,10 +28,6 @@ Device start / stop button.
   - Green square icon: device is running and can be stopped
   - Magenta (or pink) square icon: an error occurred. In the case the device was accidentally disconnected you may click on the icon, plug back in and start again.
 
-<h4>1.3: Record</h4>
-
-Record baseband I/Q stream toggle button
-
 <h4>1.4: Stream sample rate</h4>
 
 Baseband I/Q sample rate in kS/s. This is the device to host sample rate (3) divided by the decimation factor (4).
@@ -54,7 +50,7 @@ The I/Q stream from the generator is downsampled by a power of two before being 
 
 This exercises the decimation chain.
 
-<h4>2.3: Baseband center frequency position relative the center frequency</h4>
+<h4>2.3: Baseband center frequency position relative to the center frequency</h4>
 
   - **Cen**: the decimation operation takes place around the center frequency Fs
   - **Inf**: the decimation operation takes place around Fs - Fc.
@@ -77,7 +73,7 @@ This is the sample size in number of bits. It corresponds to the actual sample s
 
 This controls the generator sample rate in samples per second.
 
-<h3>4: Modulation</h4>
+<h3>4: Modulation</h3>
 
   - **No**: No modulation
   - **AM**: Amplitude modulation (AM)
@@ -87,10 +83,10 @@ This controls the generator sample rate in samples per second.
     - Sync pattern: 010 at full amplitude
     - Binary pattern LSB first on 3 bits from 0 to 7 at 0.3 amplitude
   - **P1**: Pattern 1 is a sawtooth pattern
-    - Pulse width: 1000 samples
+    - Pulse width: Set by period setting
     - Starts at full amplitude then amplitude decreases linearly down to zero
-  - **P2**: Pattern 2 is a 50% duty cycle square pattern
-    - Pulse width: 1000 samples
+  - **P2**: Pattern 2 is a square pattern
+    - Pulse width: Set by period and duty cycle settings
     - Starts with a full amplitude pulse then down to zero for the duration of one pulse
 
 <h3>5: Modulating tone frequency</h3>
@@ -108,6 +104,14 @@ This controls the AM modulation factor from 0 to 99%
 <h3>8: FM deviation</h3>
 
 This controls the frequency modulation deviation in kHz in 100 Hz steps. It cannot exceed the sample rate.
+
+<h3>Period</h3>
+
+Specifies the period of the P1 and P2 patterns in samples. The minimum is one sample.
+
+<h3>Duty Cycle</h3>
+
+Specifies the duty cycle for the P2 pattern. This is the percent of time period the signal is high.
 
 <h3>9: Amplitude coarse control</h3>
 

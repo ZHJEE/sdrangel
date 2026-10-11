@@ -8,11 +8,13 @@ This output sample sink plugin sends its samples to a [BladeRF2 device](https://
 
 The plugin will be built only if the [BladeRF host library](https://github.com/Nuand/bladeRF) is installed in your system. If you build it from source and install it in a custom location say: `/opt/install/libbladeRF` you will have to add `-DBLADERF_DIR=/opt/install/libbladeRF/include` to the cmake command line.
 
-Note that the libbladeRF v2 (specifically the git tag 2018.08) is used. The FPGA image v0.7.3 should be used accordingly. The FPGA .rbf file should be copied to the folder where the `sdrangel` binary resides. You can download FPGA images from [here](https://www.nuand.com/fpga_images/)
+The FPGA .rbf file should be copied to the folder where the `sdrangel` binary resides. You can download FPGA images from [here](https://www.nuand.com/fpga_images/)
 
 The BladeRF Host library is also provided by many Linux distributions (check its version) and is built in the SDRangel binary releases.
 
 <h2>Interface</h2>
+
+The top and bottom bars of the device window are described [here](../../../sdrgui/device/readme.md)
 
 ![BladeRF2 output plugin GUI](../../../doc/img/BladeRF2Output_plugin.png)
 
@@ -112,8 +114,8 @@ The main samples buffer is based on the baseband sample rate and will introduce 
 
 <h3>9: Gain control</h3>
 
-Use this slider to adjust gain in manual mode. The gain varies from -89 to 0 dB in 1 dB steps. Thus this is in fact an attenuator
+Use this slider to adjust gain in manual mode. The gain varies from -23.75 to 66 dB in 0.25 dB steps. However only integer values are taken into account.
 
 <h3>10: Bias tee control</h3>
 
-Use this toggle button to activate or de-activate the bias tee. Note that according to BladeRF v2 specs the bias tee is simultanously present on all Tx RF ports. The GUI of the sibling channel if present is adjusted automatically.
+Use this toggle button to activate or de-activate the bias tee. Note that according to BladeRF v2 specs the bias tee is simultaneously present on all Tx RF ports. The GUI of the sibling channel if present is adjusted automatically.

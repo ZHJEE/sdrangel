@@ -1,51 +1,59 @@
 project(chanalyzer)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
 set(chanalyzer_SOURCES
 	chanalyzer.cpp
 	chanalyzergui.cpp
 	chanalyzerplugin.cpp
-	chanalyzersettings.cpp
+    chanalyzersettings.cpp
+    chanalyzersink.cpp
+    chanalyzerbaseband.cpp
+	chanalyzerwebapiadapter.cpp
+    rrcfilterdialog.cpp
+	chanalyzergui.ui
+    rrcfilterdialog.ui
 )
 
 set(chanalyzer_HEADERS
 	chanalyzer.h
 	chanalyzergui.h
 	chanalyzerplugin.h
-	chanalyzersettings.h
-)
-
-set(chanalyzer_FORMS
-	chanalyzergui.ui
+    chanalyzersettings.h
+    chanalyzersink.h
+    chanalyzerbaseband.h
+	chanalyzerwebapiadapter.h
+    rrcfilterdialog.h
 )
 
 include_directories(
-	.
-	${CMAKE_CURRENT_BINARY_DIR}
+	${CMAKE_SOURCE_DIR}/swagger/sdrangel/code/qt5/client
 	${Boost_INCLUDE_DIRS}
 )
 
-#include(${QT_USE_FILE})
-add_definitions(${QT_DEFINITIONS})
-add_definitions(-DQT_PLUGIN)
-add_definitions(-DQT_SHARED)
+set(TARGET_NAME ${PLUGINS_PREFIX}chanalyzer)
+set(INSTALL_FOLDER ${INSTALL_PLUGINS_DIR})
 
-#qt5_wrap_cpp(chanalyzer_HEADERS_MOC ${chanalyzer_HEADERS})
-qt5_wrap_ui(chanalyzer_FORMS_HEADERS ${chanalyzer_FORMS})
+if(NOT Qt6_FOUND)
+    add_library(${TARGET_NAME} ${chanalyzer_SOURCES})
+else()
+    qt_add_plugin(${TARGET_NAME} CLASS_NAME ChannelAnalyzerPlugin)
+    target_sources(${TARGET_NAME} PRIVATE ${chanalyzer_SOURCES})
+endif()
 
-add_library(chanalyzer SHARED
-	${chanalyzer_SOURCES}
-	${chanalyzer_HEADERS_MOC}
-	${chanalyzer_FORMS_HEADERS}
-)
+if(NOT BUILD_SHARED_LIBS)
+    set_property(GLOBAL APPEND PROPERTY STATIC_PLUGINS_PROPERTY ${TARGET_NAME})
+endif()
 
-target_link_libraries(chanalyzer
-	${QT_LIBRARIES}
+target_link_libraries(${TARGET_NAME} PRIVATE
+    Qt::Core
+    Qt::Widgets
 	sdrbase
 	sdrgui
 )
 
-target_link_libraries(chanalyzer Qt5::Core Qt5::Widgets)
+install(TARGETS ${TARGET_NAME} DESTINATION ${INSTALL_FOLDER})
 
-install(TARGETS chanalyzer DESTINATION lib/plugins/channelrx)
+# Install debug symbols
+if (WIN32)
+    install(FILES $<TARGET_PROPERTY:${TARGET_NAME},RUNTIME_OUTPUT_DIRECTORY>/${TARGET_NAME}stripped.pdb CONFIGURATIONS Release DESTINATION ${INSTALL_FOLDER} RENAME ${TARGET_NAME}.pdb )
+    install(FILES $<TARGET_PDB_FILE:${TARGET_NAME}> CONFIGURATIONS Debug RelWithDebInfo DESTINATION ${INSTALL_FOLDER} )
+endif()

@@ -1,3 +1,5 @@
+// Copyright (C) 2018-2019, 2021 Edouard Griffiths, F4EXB <f4exb06@gmail.com> //
+
 // This file is part of LeanSDR Copyright (C) 2016-2018 <pabr@pabr.org>.
 // See the toplevel README for more information.
 //
@@ -182,7 +184,7 @@ struct cscope : runnable
     unsigned long decimation;
     unsigned long pixels_per_frame;
     cstln_base **cstln; // Optional ptr to optional constellation
-    cscope(scheduler *sch, pipebuf<complex<T>> &_in, T _xymin, T _xymax,
+    cscope(scheduler *sch, pipebuf<std::complex<T>> &_in, T _xymin, T _xymax,
            const char *_name = NULL)
         : runnable(sch, _name ? _name : _in.name),
           xymin(_xymin), xymax(_xymax),
@@ -199,7 +201,7 @@ struct cscope : runnable
             {
                 draw_begin();
                 g.setfg(0, 255, 0);
-                complex<T> *p = in.rd(), *pend = p + pixels_per_frame;
+                std::complex<T> *p = in.rd(), *pend = p + pixels_per_frame;
                 for (; p < pend; ++p)
                     g.point(g.w * (p->re - xymin) / (xymax - xymin),
                             g.h - g.h * (p->im - xymin) / (xymax - xymin));
@@ -209,7 +211,7 @@ struct cscope : runnable
                     g.setfg(255, 255, 255);
                     for (int i = 0; i < (*cstln)->nsymbols; ++i)
                     {
-                        complex<signed char> *p = &(*cstln)->symbols[i];
+                        std::complex<signed char> *p = &(*cstln)->symbols[i];
                         int x = g.w * (p->re - xymin) / (xymax - xymin);
                         int y = g.h - g.h * (p->im - xymin) / (xymax - xymin);
                         for (int d = -2; d <= 2; ++d)
@@ -228,7 +230,7 @@ struct cscope : runnable
         }
     }
     //private:
-    pipereader<complex<T>> in;
+    pipereader<std::complex<T>> in;
     unsigned long phase;
     gfx g;
     void draw_begin()
@@ -366,7 +368,7 @@ struct slowmultiscope : runnable
             channel *c = &chans[i];
             g.setfg(c->spec.rgb[0], c->spec.rgb[1], c->spec.rgb[2]);
             char text[256];
-            sprintf(text, c->spec.format, c->print_val);
+            snprintf(text, sizeof(text), c->spec.format, c->print_val);
             g.transient_text(5, 20 + 16 * i, text);
         }
         run_gui();
@@ -443,7 +445,7 @@ struct slowmultiscope : runnable
         float ct = g.mx * samples_per_pixel / sample_freq;
         float tt = total_samples / sample_freq;
         char text[256];
-        sprintf(text, "%.3f / %.3f s", ct, tt);
+        snprintf(text, sizeof(text), "%.3f / %.3f s", ct, tt);
         g.setfg(255, 255, 255);
         g.transient_text(g.w * 3 / 4, 20, text);
     }
@@ -459,7 +461,7 @@ struct spectrumscope : runnable
     unsigned long size;
     float amax;
     unsigned long decimation;
-    spectrumscope(scheduler *sch, pipebuf<complex<T>> &_in,
+    spectrumscope(scheduler *sch, pipebuf<std::complex<T>> &_in,
                   T _max, const char *_name = NULL)
         : runnable(sch, _name ? _name : _in.name),
           size(4096), amax(_max / sqrtf(size)),
@@ -488,14 +490,14 @@ struct spectrumscope : runnable
     }
 
   private:
-    pipereader<complex<T>> in;
+    pipereader<std::complex<T>> in;
     static const int MAX_MARKERS = 4;
     float markers[MAX_MARKERS];
     int nmarkers;
     int phase;
     gfx g;
     cfft_engine<float> *fft;
-    void do_fft(complex<T> *input)
+    void do_fft(std::complex<T> *input)
     {
         draw_begin();
         if (!fft || fft->n != size)
@@ -504,8 +506,8 @@ struct spectrumscope : runnable
                 delete fft;
             fft = new cfft_engine<float>(size);
         }
-        complex<T> *pin = input, *pend = pin + size;
-        complex<float> data[size], *pout = data;
+        std::complex<T> *pin = input, *pend = pin + size;
+        std::complex<float> data[size], *pout = data;
         g.setfg(255, 0, 0);
         for (int x = 0; pin < pend; ++pin, ++pout, ++x)
         {
@@ -518,16 +520,16 @@ struct spectrumscope : runnable
         for (int i = 0; i < size; ++i)
         {
             int x = ((i < size / 2) ? i + size / 2 : i - size / 2) * g.w / size;
-            complex<float> v = data[i];
+            std::complex<float> v = data[i];
             ;
-            float y = hypot(v.re, v.im);
+            float y = hypot(v.real(), v.imag());
             g.line(x, g.h - 1, x, g.h - 1 - y * g.h / amax);
         }
         if (g.buttons)
         {
             char s[256];
             float f = 2.4e6 * (g.mx - g.w / 2) / g.w;
-            sprintf(s, "%f", f);
+            snprintf(s, sizeof(s), "%f", f);
             g.text(16, 16, s);
         }
         g.show();
@@ -559,7 +561,7 @@ struct rfscope : runnable
     float hzoom;        // Horizontal zoom factor
     float db0, dbrange; // Vertical range db0 .. db0+dbrange
     float bw;           // Smoothing bandwidth
-    rfscope(scheduler *sch, pipebuf<complex<T>> &_in,
+    rfscope(scheduler *sch, pipebuf<std::complex<T>> &_in,
             const char *_name = NULL)
         : runnable(sch, _name ? _name : _in.name),
           size(4096), decimation(DEFAULT_GUI_DECIMATION),
@@ -581,13 +583,13 @@ struct rfscope : runnable
     }
 
   private:
-    pipereader<complex<T>> in;
+    pipereader<std::complex<T>> in;
     int phase;
     gfx g;
     cfft_engine<float> *fft;
     float *filtered;
 
-    void do_fft(complex<T> *input)
+    void do_fft(std::complex<T> *input)
     {
         g.events();
         draw_begin();
@@ -597,9 +599,9 @@ struct rfscope : runnable
                 delete fft;
             fft = new cfft_engine<float>(size);
         }
-        // Convert to complex<float> and transform
-        complex<T> *pin = input, *pend = pin + size;
-        complex<float> data[size], *pout = data;
+        // Convert to std::complex<float> and transform
+        std::complex<T> *pin = input, *pend = pin + size;
+        std::complex<float> data[size], *pout = data;
         for (int x = 0; pin < pend; ++pin, ++pout, ++x)
         {
             pout->re = (float)pin->re;
@@ -609,9 +611,9 @@ struct rfscope : runnable
         float amp2[size];
         for (int i = 0; i < size; ++i)
         {
-            complex<float> &v = data[i];
+            std::complex<float> &v = data[i];
             ;
-            amp2[i] = (v.re * v.re + v.im * v.im) * size;
+            amp2[i] = (v.real() * v.real() + v.imag() * v.imag()) * size;
         }
         if (!filtered)
         {
@@ -635,7 +637,7 @@ struct rfscope : runnable
             char s[256];
             float freq = Fc + Fs * (g.mx - g.w / 2) / g.w / hzoom;
             float val = db0 + (float)((g.h - 1) - g.my) * dbrange / g.h;
-            sprintf(s, "%f.3 Hz   %f.2 dB", freq, val);
+            snprintf(s, sizeof(s), "%f.3 Hz   %f.2 dB", freq, val);
             g.setfg(255, 255, 255);
             g.text(16, 16, s);
         }
@@ -724,7 +726,7 @@ struct genscope : runnable
             g.line(pc->spec.r.x - dx, pc->spec.r.y - dy,
                    pc->spec.r.x + dx, pc->spec.r.y + dy);
             char txt[16];
-            sprintf(txt, "%d", (int)last);
+            snprintf(txt, sizeof(txt), "%d", (int)last);
             g.text(pc->spec.r.x + 5, pc->spec.r.y - 2, txt);
         }
         struct timeval newtv;

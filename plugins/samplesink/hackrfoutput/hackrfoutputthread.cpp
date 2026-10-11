@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////////
-// Copyright (C) 2017 Edouard Griffiths, F4EXB                                   //
+// Copyright (C) 2017-2019, 2021 Edouard Griffiths, F4EXB <f4exb06@gmail.com>    //
 //                                                                               //
 // This program is free software; you can redistribute it and/or modify          //
 // it under the terms of the GNU General Public License as published by          //
@@ -27,8 +27,10 @@ HackRFOutputThread::HackRFOutputThread(hackrf_device* dev, SampleSourceFifo* sam
 	m_running(false),
 	m_dev(dev),
 	m_sampleFifo(sampleFifo),
-	m_log2Interp(0)
+	m_log2Interp(0),
+    m_fcPos(2)
 {
+    setObjectName("HackRFOutput");
     std::fill(m_buf, m_buf + 2*HACKRF_BLOCKSIZE, 0);
 }
 
@@ -71,25 +73,32 @@ void HackRFOutputThread::run()
     m_running = true;
     m_startWaiter.wakeAll();
 
-
     if (hackrf_is_streaming(m_dev) == HACKRF_TRUE)
     {
-        qDebug("HackRFInputThread::run: HackRF is streaming already");
-    }
-    else
-    {
-        qDebug("HackRFInputThread::run: HackRF is not streaming");
-
-        rc = (hackrf_error) hackrf_start_tx(m_dev, tx_callback, this);
+        qDebug("HackRFOutputThread::run: HackRF is streaming already");
+        rc = (hackrf_error) hackrf_stop_tx(m_dev);
 
         if (rc == HACKRF_SUCCESS)
         {
-            qDebug("HackRFOutputThread::run: started HackRF Tx");
+            qDebug("HackRFOutputThread::run: stopped HackRF Tx");
         }
         else
         {
-            qDebug("HackRFOutputThread::run: failed to start HackRF Tx: %s", hackrf_error_name(rc));
+            qDebug("HackRFOutputThread::run: failed to stop HackRF Tx: %s", hackrf_error_name(rc));
         }
+    }
+
+    usleep(200000);
+
+    rc = (hackrf_error) hackrf_start_tx(m_dev, tx_callback, this);
+
+    if (rc == HACKRF_SUCCESS)
+    {
+        qDebug("HackRFOutputThread::run: started HackRF Tx");
+    }
+    else
+    {
+        qDebug("HackRFOutputThread::run: failed to start HackRF Tx: %s", hackrf_error_name(rc));
     }
 
     while ((m_running) && (hackrf_is_streaming(m_dev) == HACKRF_TRUE))
@@ -117,9 +126,25 @@ void HackRFOutputThread::run()
 //  Interpolate according to specified log2 (ex: log2=4 => interp=16)
 void HackRFOutputThread::callback(qint8* buf, qint32 len)
 {
-    SampleVector::iterator beginRead;
-    m_sampleFifo->readAdvance(beginRead, len/(2*(1<<m_log2Interp)));
-    beginRead -= len/2;
+    SampleVector& data = m_sampleFifo->getData();
+    unsigned int iPart1Begin, iPart1End, iPart2Begin, iPart2End;
+    m_sampleFifo->read(len/(2*(1<<m_log2Interp)), iPart1Begin, iPart1End, iPart2Begin, iPart2End);
+
+    if (iPart1Begin != iPart1End) {
+        callbackPart(buf, data, iPart1Begin, iPart1End);
+    }
+
+    unsigned int shift = (iPart1End - iPart1Begin)*(1<<m_log2Interp);
+
+    if (iPart2Begin != iPart2End) {
+        callbackPart(buf + 2*shift, data, iPart2Begin, iPart2End);
+    }
+}
+
+void HackRFOutputThread::callbackPart(qint8* buf, SampleVector& data, unsigned int iBegin, unsigned int iEnd)
+{
+    SampleVector::iterator beginRead = data.begin() + iBegin;
+    int len = 2*(iEnd - iBegin)*(1<<m_log2Interp);
 
 	if (m_log2Interp == 0)
 	{
